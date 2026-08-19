@@ -1,0 +1,19 @@
+# Xcode / build
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+*.xcuserstate
+xcuserdata/
+
+# xcodegen generates the project from project.yml
+DshStudio.xcodeproj/
+
+# macOS
+.DS_Store
+._*
+
+# Local / internal working docs (not for publication)
+*.log
+GAUNTLET.md
+DESIGN.md

@@ -1,0 +1,25 @@
+name: DshStudio
+options:
+  bundleIdPrefix: com.kasparov
+  deploymentTarget:
+    macOS: "14.0"
+targets:
+  DshStudio:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: DSH Studio
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kasparov.dshstudio
+        CODE_SIGN_IDENTITY: "-"
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_HARDENED_RUNTIME: YES

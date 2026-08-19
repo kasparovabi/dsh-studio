@@ -1,0 +1,1120 @@
+import SwiftUI
+
+struct SessionRow: Identifiable, Hashable {
+    let id: String
+    var title: String
+    var cwd: String
+    var updatedAt: Double
+    var agentPreset: String?
+}
+
+struct EffortOption: Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct ModelOption: Identifiable, Hashable {
+    var id: String { "\(provider)/\(model)" }
+    let provider: String
+    let providerName: String
+    let model: String
+    let modelName: String
+    var efforts: [EffortOption] = []
+    var defaultEffort: String?
+}
+
+struct ApprovalRequest: Identifiable, Equatable {
+    let id: String
+    let rpcId: String
+    let sessionId: String
+    let toolName: String
+    let reason: String?
+    let callId: String?
+}
+
+extension String {
+    var sanitizedForDisplay: String {
+        String(unicodeScalars.filter { scalar in
+            !scalar.properties.isBidiControl
+                && !(scalar.value < 0x20 && scalar != "\n" && scalar != "\t")
+                && !(0x2066...0x2069).contains(scalar.value)
+        })
+    }
+}
+
+struct QueueItem: Identifiable, Equatable {
+    let id: String
+    let placement: String
+    let text: String
+}
+
+struct PermissionSelect: Equatable {
+    let options: [String]
+    var current: String
+}
+
+struct PresetOption: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let description: String?
+    let isDefault: Bool
+}
+
+struct SkillInfo: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let description: String
+}
+
+struct SubagentEntry: Identifiable, Equatable {
+    let id: String
+    let mode: String
+    let activity: String
+    let label: String
+}
+
+struct JobView: Identifiable, Equatable {
+    let id: String
+    let kind: String
+    let label: String
+    let status: String
+    let detail: String?
+}
+
+struct GoalState: Equatable {
+    let id: String
+    let revision: Int
+    let objective: String
+    let phase: String
+    let blockedMessage: String?
+    let maxRounds: Int
+    let roundsStarted: Int
+}
+
+struct ContextPressure: Equatable {
+    let tokens: Int
+    let window: Int
+
+    var fraction: Double { min(1, Double(tokens) / Double(window)) }
+}
+
+struct PendingImage: Identifiable, Equatable {
+    let id = UUID()
+    let name: String
+    let mediaType: String
+    let data: Data
+    let preview: NSImage?
+}
+
+struct QuestionOption: Identifiable, Hashable {
+    var id: String { label }
+    let label: String
+    let description: String?
+}
+
+struct QuestionItem: Identifiable {
+    let id: String
+    let question: String
+    let header: String?
+    let detail: String?
+    let options: [QuestionOption]
+    let multiSelect: Bool
+    let approveLabel: String?
+}
+
+struct QuestionRequest: Identifiable {
+    var id: String { rpcId }
+    let rpcId: String
+    let sessionId: String
+    let items: [QuestionItem]
+}
+
+@MainActor
+final class StreamState: ObservableObject {
+    @Published var text = ""
+    @Published var thinking = ""
+
+    func clear() {
+        text = ""
+        thinking = ""
+    }
+}
+
+@MainActor
+final class AppModel: ObservableObject {
+    enum ServerState: Equatable {
+        case idle, connecting, launching, ready
+        case failed(String)
+    }
+
+    static weak var shared: AppModel?
+
+    @Published var serverState: ServerState = .idle
+    @Published var sessions: [SessionRow] = []
+    @Published var selected: String?
+    @Published var items: [TrajectoryItem] = []
+    @Published var stats = SessionStats()
+    @Published var running = false
+    @Published var provider = ""
+    @Published var model = ""
+    @Published var reasoningEffort: String?
+    @Published var modelOptions: [ModelOption] = []
+    @Published var approvals: [ApprovalRequest] = []
+    @Published var questions: [QuestionRequest] = []
+    var question: QuestionRequest? { questions.first { $0.sessionId == selected } }
+    @Published var queueItems: [QueueItem] = []
+    @Published var composer = ""
+    let streamState = StreamState()
+    @Published var lastError: String?
+    @Published var wsConnected = false
+    @Published var pendingImages: [PendingImage] = []
+    @Published var attachmentImages: [String: NSImage] = [:]
+    @Published var contextPressure: ContextPressure?
+    @Published var jobs: [JobView] = []
+    @Published var subagents: [SubagentEntry] = []
+    @Published var subagentSheet: SubagentEntry?
+    @Published var subagentHistory: [(String, String)] = []
+    @Published var goal: GoalState?
+    @Published var permission: PermissionSelect?
+    @Published var presetOptions: [PresetOption] = []
+    @Published var agentPreset: String?
+    @Published var skills: [SkillInfo] = []
+    @Published var skillsSheetOpen = false
+    @Published var goalSheetOpen = false
+    @Published var goalDraft = ""
+    @Published var searchQuery = ""
+    @Published var searchResults: [String: String]?
+    @Published var renameTarget: SessionRow?
+    @Published var renameDraft = ""
+
+    private var attachmentFetches: Set<String> = []
+    private var appendedIDs: Set<String> = []
+    private var toolIndex: [String: Int] = [:]
+    private var searchTask: Task<Void, Never>?
+    private var sessionsRefreshTask: Task<Void, Never>?
+    private var frameConsumer: Task<Void, Never>?
+    private var frameContinuation: AsyncStream<[String: Any]>.Continuation?
+
+    let port: Int = {
+        let raw = Int(ProcessInfo.processInfo.environment["DSH_STUDIO_PORT"] ?? "") ?? 3080
+        return (1...65535).contains(raw) ? raw : 3080
+    }()
+    lazy var client = DshClient(port: port)
+    private lazy var server = ServerManager(port: port)
+    private var socket: EventSocket?
+    private var loadGeneration = 0
+    private var projectionSnapshots: [String: [String: Any]] = [:]
+    private var reconnectInFlight = false
+
+    var serverStatusText: String {
+        switch serverState {
+        case .idle: return "Idle"
+        case .connecting: return "Connecting…"
+        case .launching: return "Starting dsh server…"
+        case .ready: return wsConnected ? "Connected" : "Stream lost"
+        case .failed(let m): return m
+        }
+    }
+
+    init() {
+        AppModel.shared = self
+    }
+
+    func shutdownIfSpawned() {
+        if server.spawnedByApp { server.terminate() }
+    }
+
+    func bootstrap() {
+        guard serverState == .idle else { return }
+        Task { await connect() }
+    }
+
+    func connect() async {
+        serverState = .connecting
+        for attempt in 0..<3 {
+            if await probe() {
+                await becomeReady()
+                return
+            }
+            if attempt < 2 { try? await Task.sleep(nanoseconds: 300_000_000) }
+        }
+        serverState = .launching
+        do {
+            try server.launch()
+        } catch {
+            serverState = .failed("failed to launch dsh: \(error.localizedDescription)")
+            return
+        }
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if await probe() {
+                await becomeReady()
+                return
+            }
+        }
+        serverState = .failed("dsh did not come up within 30s — see \(server.logURL.path)")
+    }
+
+    private func probe() async -> Bool {
+        guard let host = (try? await client.call("host.describe")) as? [String: Any] else { return false }
+        return host["version"] != nil || host["cwd"] != nil
+    }
+
+    private func becomeReady() async {
+        serverState = .ready
+        if let host = (try? await client.call("host.describe")) as? [String: Any] {
+            provider = host["provider"] as? String ?? ""
+            model = host["model"] as? String ?? ""
+        }
+        approvals = []
+        questions = []
+        let previouslySelected = selected
+        await refreshSessions()
+        if let sel = previouslySelected, sessions.contains(where: { $0.id == sel }) {
+            await select(sel)
+        }
+        openSocket()
+        await loadPresets()
+    }
+
+    private func loadPresets() async {
+        guard let value = (try? await client.call("agentPreset.list")) as? [String: Any] else { return }
+        presetOptions = (value["presets"] as? [[String: Any]] ?? []).compactMap { p in
+            guard let pid = p["id"] as? String, p["broken"] == nil else { return nil }
+            return PresetOption(
+                id: pid,
+                name: p["name"] as? String ?? pid,
+                description: p["description"] as? String,
+                isDefault: p["isDefault"] as? Bool ?? false
+            )
+        }
+    }
+
+    func selectPermission(_ value: String) {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("commands/execute", [
+                    "args": ["agentId": sessionId, "line": "/permission \(value)"],
+                ])
+                guard sessionId == selected else { return }
+                if var current = permission {
+                    current.current = value
+                    permission = current
+                }
+            } catch {
+                report("permission switch failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func selectPreset(_ option: PresetOption) {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("agentPreset.select", [
+                    "sessionId": sessionId,
+                    "agentPreset": option.id,
+                ])
+                guard sessionId == selected else { return }
+                agentPreset = option.id
+                await refreshSessions()
+            } catch {
+                report("preset switch failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func openSkills() {
+        guard let sessionId = selected else { return }
+        skillsSheetOpen = true
+        skills = []
+        Task {
+            do {
+                let value = try await client.call("skill.list", ["sessionId": sessionId]) as? [String: Any]
+                skills = (value?["skills"] as? [[String: Any]] ?? []).compactMap { s in
+                    guard let name = s["name"] as? String else { return nil }
+                    return SkillInfo(name: name, description: s["description"] as? String ?? "")
+                }
+            } catch {
+                report("skill list failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func scheduleSessionsRefresh() {
+        sessionsRefreshTask?.cancel()
+        sessionsRefreshTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await refreshSessions()
+        }
+    }
+
+    func refreshSessions() async {
+        guard let value = (try? await client.call("session.list")) as? [String: Any],
+              let list = value["items"] as? [[String: Any]] else { return }
+        sessions = list.compactMap { item in
+            guard let id = item["sessionId"] as? String else { return nil }
+            let values = (item["projections"] as? [String: Any])?["values"] as? [String: Any]
+            if let values { projectionSnapshots[id] = values }
+            var title = values?["title"] as? String
+            if title == nil, let t = (values?["title"] as? [String: Any])?["title"] as? String { title = t }
+            return SessionRow(
+                id: id,
+                title: title ?? "Untitled session",
+                cwd: item["cwd"] as? String ?? "",
+                updatedAt: item["updatedAt"] as? Double ?? 0,
+                agentPreset: item["agentPreset"] as? String
+            )
+        }
+        let liveIDs = Set(sessions.map { $0.id })
+        projectionSnapshots = projectionSnapshots.filter { liveIDs.contains($0.key) }
+        if selected == nil, let first = sessions.first {
+            await select(first.id)
+        }
+    }
+
+    func select(_ id: String) async {
+        selected = id
+        items = []
+        appendedIDs = []
+        toolIndex = [:]
+        stats = SessionStats()
+        running = false
+        streamState.clear()
+        queueItems = []
+        contextPressure = nil
+        goal = nil
+        jobs = []
+        subagents = []
+        subagentSheet = nil
+        subagentHistory = []
+        pendingImages = []
+        permission = nil
+        attachmentImages = [:]
+        attachmentFetches = []
+        agentPreset = sessions.first(where: { $0.id == id })?.agentPreset
+        if let snapshot = projectionSnapshots[id] {
+            applyProjection(key: "tokenUsage", value: snapshot["tokenUsage"] ?? [:])
+            applyProjection(key: "sessionStats", value: snapshot["sessionStats"] ?? [:])
+            applyProjection(key: "contextPressure", value: snapshot["contextPressure"] ?? [:])
+            applyProjection(key: "goal", value: snapshot["goal"] ?? NSNull())
+            applyProjection(key: "permissions", value: snapshot["permissions"] ?? [:])
+        }
+        loadGeneration += 1
+        let generation = loadGeneration
+        await loadModels(id, generation: generation)
+        await loadHistory(id, generation: generation)
+        refreshSubagents()
+    }
+
+    private func loadModels(_ id: String, generation: Int) async {
+        guard let value = (try? await client.call("session.models", ["sessionId": id])) as? [String: Any] else { return }
+        guard generation == loadGeneration else { return }
+        if let current = value["current"] as? [String: Any] {
+            provider = current["provider"] as? String ?? provider
+            model = current["model"] as? String ?? model
+            reasoningEffort = current["reasoningEffort"] as? String
+        }
+        var options: [ModelOption] = []
+        for group in value["groups"] as? [[String: Any]] ?? [] {
+            let pid = group["id"] as? String ?? ""
+            let pname = group["name"] as? String ?? pid
+            for m in group["models"] as? [[String: Any]] ?? [] {
+                guard let mid = m["id"] as? String else { continue }
+                var option = ModelOption(provider: pid, providerName: pname, model: mid, modelName: m["name"] as? String ?? mid)
+                if let reasoning = m["reasoning"] as? [String: Any] {
+                    option.efforts = (reasoning["efforts"] as? [[String: Any]] ?? []).compactMap { e in
+                        guard let eid = e["id"] as? String else { return nil }
+                        return EffortOption(id: eid, name: e["name"] as? String ?? eid)
+                    }
+                    option.defaultEffort = reasoning["defaultEffort"] as? String
+                }
+                options.append(option)
+            }
+        }
+        modelOptions = options
+    }
+
+    var currentModelOption: ModelOption? {
+        modelOptions.first { $0.provider == provider && $0.model == model }
+    }
+
+    func selectModel(_ option: ModelOption) {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("session.selectModel", [
+                    "sessionId": sessionId,
+                    "provider": option.provider,
+                    "model": option.model,
+                ])
+                guard sessionId == selected else { return }
+                provider = option.provider
+                model = option.model
+                reasoningEffort = nil
+            } catch {
+                report("model selection failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func selectEffort(_ effortId: String) {
+        guard let sessionId = selected, !provider.isEmpty, !model.isEmpty else { return }
+        Task {
+            do {
+                let value = try await client.call("session.selectModel", [
+                    "sessionId": sessionId,
+                    "provider": provider,
+                    "model": model,
+                    "reasoningEffort": effortId,
+                ]) as? [String: Any]
+                guard sessionId == selected else { return }
+                let chosen = value?["selected"] as? [String: Any]
+                reasoningEffort = chosen?["reasoningEffort"] as? String ?? effortId
+            } catch {
+                report("effort selection failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func loadHistory(_ id: String, generation: Int) async {
+        do {
+            let value = try await client.call("session.history", ["sessionId": id])
+            guard generation == loadGeneration else { return }
+            let wrapped = (value as? [String: Any])?["events"] as? [[String: Any]] ?? []
+            for wrapper in wrapped {
+                if let event = wrapper["event"] as? [String: Any] {
+                    reduce(event: event, live: false)
+                }
+            }
+        } catch {
+            report("history load failed: \(error.localizedDescription)")
+        }
+    }
+
+    func send(mode: String = "queue") {
+        let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let images = pendingImages
+        guard !text.isEmpty || !images.isEmpty, let sessionId = selected else { return }
+        composer = ""
+        pendingImages = []
+        var content: [[String: Any]] = images.map {
+            ["type": "image", "data": $0.data.base64EncodedString(), "mediaType": $0.mediaType, "name": $0.name]
+        }
+        if !text.isEmpty {
+            content.append(["type": "text", "text": text])
+        }
+        Task {
+            do {
+                _ = try await client.call("session.prompt", [
+                    "sessionId": sessionId,
+                    "mode": mode,
+                    "content": content,
+                ])
+            } catch {
+                report("send failed: \(error.localizedDescription)")
+                if composer.isEmpty { composer = text }
+                if pendingImages.isEmpty { pendingImages = images }
+            }
+        }
+    }
+
+    func attachImages() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
+        panel.prompt = "Attach"
+        panel.begin { [weak self] resp in
+            guard resp == .OK else { return }
+            let urls = panel.urls
+            Task { @MainActor in
+                for url in urls {
+                    guard let data = try? Data(contentsOf: url) else {
+                        self?.report("could not read \(url.lastPathComponent)")
+                        continue
+                    }
+                    let mediaType: String
+                    switch url.pathExtension.lowercased() {
+                    case "png": mediaType = "image/png"
+                    case "jpg", "jpeg": mediaType = "image/jpeg"
+                    case "gif": mediaType = "image/gif"
+                    case "webp": mediaType = "image/webp"
+                    default:
+                        self?.report("unsupported image type: \(url.lastPathComponent)")
+                        continue
+                    }
+                    self?.pendingImages.append(PendingImage(
+                        name: url.lastPathComponent,
+                        mediaType: mediaType,
+                        data: data,
+                        preview: NSImage(data: data)
+                    ))
+                }
+            }
+        }
+    }
+
+    func removePendingImage(_ image: PendingImage) {
+        pendingImages.removeAll { $0.id == image.id }
+    }
+
+    func loadAttachment(_ attachmentId: String) {
+        guard let sessionId = selected,
+              attachmentImages[attachmentId] == nil,
+              !attachmentFetches.contains(attachmentId) else { return }
+        attachmentFetches.insert(attachmentId)
+        Task {
+            do {
+                let value = try await client.call("session.attachment", [
+                    "sessionId": sessionId,
+                    "attachmentId": attachmentId,
+                ]) as? [String: Any]
+                if let b64 = value?["data"] as? String,
+                   let data = Data(base64Encoded: b64),
+                   let image = NSImage(data: data) {
+                    attachmentImages[attachmentId] = image
+                }
+            } catch {
+                report("attachment load failed: \(error.localizedDescription)")
+            }
+            attachmentFetches.remove(attachmentId)
+        }
+    }
+
+    func removeQueued(_ item: QueueItem) {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("session.updateQueue", [
+                    "sessionId": sessionId,
+                    "itemId": item.id,
+                    "action": ["kind": "remove"],
+                ])
+            } catch {
+                report("queue update failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func refreshSubagents() {
+        guard let sessionId = selected else { return }
+        Task {
+            guard let value = (try? await client.call("subagent.list", ["parentSessionId": sessionId])) as? [String: Any],
+                  sessionId == selected else { return }
+            subagents = (value["entries"] as? [[String: Any]] ?? []).compactMap { entry in
+                guard entry["kind"] as? String == "child",
+                      let childId = entry["id"] as? String else { return nil }
+                return SubagentEntry(
+                    id: childId,
+                    mode: entry["mode"] as? String ?? "one-shot",
+                    activity: entry["activity"] as? String ?? "inactive",
+                    label: entry["label"] as? String ?? String(childId.suffix(8))
+                )
+            }
+        }
+    }
+
+    func openSubagent(_ entry: SubagentEntry) {
+        guard let sessionId = selected else { return }
+        subagentSheet = entry
+        subagentHistory = []
+        Task {
+            do {
+                let value = try await client.call("subagent.history", [
+                    "parentSessionId": sessionId,
+                    "childSessionId": entry.id,
+                    "mode": entry.mode,
+                ]) as? [String: Any]
+                var rows: [(String, String)] = []
+                for wrapper in value?["events"] as? [[String: Any]] ?? [] {
+                    guard let event = wrapper["event"] as? [String: Any],
+                          let type = event["type"] as? String else { continue }
+                    let data = event["data"] as? [String: Any] ?? [:]
+                    if type == "user/message", let text = EventReducer.messageText(data) {
+                        rows.append(("user", text))
+                    } else if type == "assistant/message", let text = EventReducer.messageText(data) {
+                        rows.append(("agent", text))
+                    }
+                }
+                subagentHistory = rows
+            } catch {
+                report("subagent history failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func interruptSubagent(_ entry: SubagentEntry) {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("subagent.interrupt", [
+                    "parentSessionId": sessionId,
+                    "childSessionId": entry.id,
+                    "mode": "continuable",
+                ])
+                refreshSubagents()
+            } catch {
+                report("subagent interrupt failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func createGoal() {
+        let objective = goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        goalSheetOpen = false
+        goalDraft = ""
+        guard !objective.isEmpty, let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("goal.create", ["sessionId": sessionId, "objective": objective])
+            } catch {
+                report("goal create failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func goalAction(_ action: String) {
+        guard let sessionId = selected, let current = goal else { return }
+        Task {
+            do {
+                _ = try await client.call("goal.\(action)", [
+                    "sessionId": sessionId,
+                    "ref": ["id": current.id, "revision": current.revision],
+                ])
+            } catch {
+                report("goal \(action) failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func runSearch() {
+        searchTask?.cancel()
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            searchResults = nil
+            return
+        }
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if Task.isCancelled { return }
+            do {
+                let value = try await client.call("session.search", ["query": query]) as? [String: Any]
+                guard query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                var results: [String: String] = [:]
+                for item in value?["items"] as? [[String: Any]] ?? [] {
+                    if let id = item["sessionId"] as? String {
+                        results[id] = item["snippet"] as? String ?? ""
+                    }
+                }
+                searchResults = results
+            } catch {
+                if query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    searchResults = [:]
+                }
+            }
+        }
+    }
+
+    func beginRename(_ session: SessionRow) {
+        renameTarget = session
+        renameDraft = session.title
+    }
+
+    func commitRename() {
+        guard let target = renameTarget else { return }
+        let title = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameTarget = nil
+        guard !title.isEmpty, title != target.title else { return }
+        Task {
+            do {
+                _ = try await client.call("session.rename", ["sessionId": target.id, "title": title])
+                await refreshSessions()
+            } catch {
+                report("rename failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func fork(_ session: SessionRow) {
+        Task {
+            do {
+                let value = try await client.call("session.fork", ["sessionId": session.id]) as? [String: Any]
+                await refreshSessions()
+                if let child = value?["sessionId"] as? String {
+                    if !sessions.contains(where: { $0.id == child }) {
+                        sessions.insert(SessionRow(id: child, title: session.title, cwd: session.cwd, updatedAt: 0, agentPreset: session.agentPreset), at: 0)
+                    }
+                    await select(child)
+                }
+            } catch {
+                report("fork failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func cancel() {
+        guard let sessionId = selected else { return }
+        Task {
+            do {
+                _ = try await client.call("session.cancel", ["sessionId": sessionId])
+            } catch {
+                report("cancel failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func respond(to approval: ApprovalRequest, outcome: String) {
+        approvals.removeAll { $0.id == approval.id }
+        Task {
+            do {
+                try await client.respond(rpcId: approval.rpcId, value: [
+                    "sessionId": approval.sessionId,
+                    "approvalId": approval.id,
+                    "outcome": outcome,
+                ])
+            } catch {
+                report("approval response failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func newSession() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open here"
+        panel.begin { [weak self] resp in
+            guard resp == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                await self?.createSession(cwd: url.path)
+            }
+        }
+    }
+
+    private func createSession(cwd: String) async {
+        do {
+            let value = try await client.call("session.create", ["cwd": cwd]) as? [String: Any]
+            await refreshSessions()
+            if let id = value?["sessionId"] as? String {
+                if !sessions.contains(where: { $0.id == id }) {
+                    sessions.insert(SessionRow(id: id, title: "Untitled session", cwd: cwd, updatedAt: 0, agentPreset: nil), at: 0)
+                }
+                await select(id)
+            }
+        } catch {
+            report("session create failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func openSocket() {
+        socket?.stop()
+        frameContinuation?.finish()
+        frameConsumer?.cancel()
+        guard let wsURL = URL(string: "ws://127.0.0.1:\(port)/api/events.mux") else { return }
+        let (stream, continuation) = AsyncStream.makeStream(of: [String: Any].self)
+        frameContinuation = continuation
+        frameConsumer = Task { @MainActor [weak self] in
+            for await frame in stream {
+                self?.handle(frame: frame)
+            }
+        }
+        let s = EventSocket(url: wsURL) { frame in
+            continuation.yield(frame)
+        } onState: { [weak self] up in
+            Task { @MainActor in
+                self?.wsConnected = up
+                if !up { self?.scheduleReconnect() }
+            }
+        }
+        socket = s
+        s.start()
+    }
+
+    private func handle(frame: [String: Any]) {
+        guard let payload = frame["payload"] as? [String: Any] else { return }
+        let kind = payload["type"] as? String ?? ""
+        let sessionId = payload["sessionId"] as? String ?? ""
+        switch kind {
+        case "session/event":
+            guard let event = payload["event"] as? [String: Any] else { return }
+            if sessionId == selected {
+                reduce(event: event)
+            } else if event["type"] as? String == "session/title" {
+                scheduleSessionsRefresh()
+            }
+        case "session/projection":
+            guard sessionId == selected, let key = payload["key"] as? String else { return }
+            let projectionValue = payload["value"] ?? [:]
+            projectionSnapshots[sessionId, default: [:]][key] = projectionValue
+            applyProjection(key: key, value: projectionValue)
+        case "approval/requested":
+            let request = ApprovalRequest(
+                id: payload["approvalId"] as? String ?? UUID().uuidString,
+                rpcId: frame["rpcId"] as? String ?? "",
+                sessionId: sessionId,
+                toolName: payload["toolName"] as? String ?? "tool",
+                reason: payload["reason"] as? String,
+                callId: payload["callId"] as? String
+            )
+            if !approvals.contains(request) {
+                approvals.append(request)
+            }
+        case "approval/resolved":
+            let approvalId = payload["approvalId"] as? String ?? ""
+            approvals.removeAll { $0.id == approvalId }
+        case "question/requested":
+            let items = (payload["questions"] as? [[String: Any]] ?? []).compactMap { q -> QuestionItem? in
+                guard let qid = q["id"] as? String, let text = q["question"] as? String else { return nil }
+                let options = (q["options"] as? [[String: Any]] ?? []).compactMap { opt -> QuestionOption? in
+                    guard let label = opt["label"] as? String else { return nil }
+                    return QuestionOption(label: label, description: opt["description"] as? String)
+                }
+                return QuestionItem(
+                    id: qid,
+                    question: text,
+                    header: q["header"] as? String,
+                    detail: q["detail"] as? String,
+                    options: options,
+                    multiSelect: q["multiSelect"] as? Bool ?? false,
+                    approveLabel: ((q["intent"] as? [String: Any])?["approve"]) as? String
+                )
+            }
+            guard !items.isEmpty else { return }
+            let request = QuestionRequest(rpcId: frame["rpcId"] as? String ?? "", sessionId: sessionId, items: items)
+            if !questions.contains(where: { $0.rpcId == request.rpcId }) {
+                questions.append(request)
+            }
+        case "question/resolved":
+            let resolvedRpcId = payload["questionRpcId"] as? String
+            questions.removeAll { $0.rpcId == resolvedRpcId }
+        case "session/queue":
+            guard sessionId == selected else { return }
+            queueItems = (payload["items"] as? [[String: Any]] ?? []).compactMap { item in
+                guard let itemId = item["id"] as? String else { return nil }
+                let message = item["message"] as? [String: Any] ?? [:]
+                let text = EventReducer.messageText(message) ?? EventReducer.messageText(["message": message]) ?? ""
+                return QueueItem(
+                    id: itemId,
+                    placement: item["placement"] as? String ?? "queued",
+                    text: String(text.prefix(120))
+                )
+            }
+        case "session/jobs":
+            guard sessionId == selected else { return }
+            jobs = (payload["jobs"] as? [[String: Any]] ?? []).compactMap { job in
+                guard let jobId = job["id"] as? String,
+                      let label = job["label"] as? String else { return nil }
+                return JobView(
+                    id: jobId,
+                    kind: job["kind"] as? String ?? "job",
+                    label: label,
+                    status: job["status"] as? String ?? "running",
+                    detail: job["detail"] as? String
+                )
+            }
+        default:
+            break
+        }
+    }
+
+    func answerQuestion(_ request: QuestionRequest, selections: [String: Set<String>], custom: [String: String]) {
+        questions.removeAll { $0.rpcId == request.rpcId }
+        Task {
+            do {
+                let answers: [[String: Any]] = request.items.map { item in
+                    var answer: [String: Any] = [
+                        "id": item.id,
+                        "selected": Array(selections[item.id] ?? []),
+                    ]
+                    if let text = custom[item.id], !text.isEmpty {
+                        answer["custom"] = text
+                    }
+                    return answer
+                }
+                try await client.respond(rpcId: request.rpcId, value: [
+                    "sessionId": request.sessionId,
+                    "answer": ["answers": answers],
+                ])
+            } catch {
+                report("answer failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func reduce(event: [String: Any], live: Bool = true) {
+        let type = event["type"] as? String ?? ""
+        let data = event["data"] as? [String: Any] ?? [:]
+        let id = "\(type)-\(event["seq"] ?? UUID().uuidString)"
+        switch type {
+        case "assistant/chunk":
+            guard live, let chunk = data["chunk"] as? [String: Any] else { break }
+            switch chunk["type"] as? String {
+            case "text-delta":
+                streamState.text += chunk["text"] as? String ?? ""
+            case "reasoning-delta":
+                streamState.thinking += chunk["text"] as? String ?? ""
+            case "finish":
+                streamState.clear()
+            default:
+                break
+            }
+        case "user/message":
+            let text = EventReducer.messageText(data)
+            let images = EventReducer.imageAttachmentIds(data)
+            guard text != nil || !images.isEmpty else { return }
+            if EventReducer.sourceKind(data) == "user" {
+                appendItem(.user(id: id, text: text ?? "", images: images))
+            } else if let text {
+                appendItem(.context(id: id, summary: String(text.prefix(160))))
+            }
+        case "assistant/message":
+            if live {
+                streamState.clear()
+            }
+            if let thinking = EventReducer.reasoningText(data) {
+                appendItem(.thinking(id: id + "-thinking", text: thinking))
+            }
+            if let text = EventReducer.messageText(data) {
+                appendItem(.assistant(id: id, text: text))
+            }
+        case "turn/start":
+            running = true
+        case "turn/end":
+            running = false
+            if live { refreshSubagents() }
+        case "session/title":
+            if live { scheduleSessionsRefresh() }
+        case "tool/call":
+            let callId = data["callId"] as? String ?? id
+            let name = data["name"] as? String ?? "tool"
+            var title = name
+            var detail = ""
+            var parsedArgs: [String: Any]?
+            if let argsStr = data["arguments"] as? String,
+               let argsData = argsStr.data(using: .utf8) {
+                parsedArgs = (try? JSONSerialization.jsonObject(with: argsData)) as? [String: Any]
+            } else if let dict = data["arguments"] as? [String: Any] {
+                parsedArgs = dict
+            }
+            if let args = parsedArgs {
+                if let d = args["description"] as? String { title = d }
+                detail = args["code"] as? String ?? EventReducer.compact(args, limit: 800)
+            }
+            appendItem(.tool(id: callId, name: name, title: title, detail: detail, status: .running))
+        case "tool/code-dispatch-start":
+            let subId = data["subCallId"] as? String ?? id
+            let name = data["name"] as? String ?? "sub-call"
+            let args = data["arguments"] as? [String: Any] ?? [:]
+            let hint = (args["file_path"] as? String).map(EventReducer.shortTail)
+                ?? (args["command"] as? String)
+                ?? (args["path"] as? String).map(EventReducer.shortTail)
+                ?? ""
+            appendItem(.tool(
+                id: subId,
+                name: name,
+                title: hint.isEmpty ? name : hint,
+                detail: EventReducer.compact(args, limit: 500),
+                status: .running
+            ))
+        case "tool/code-dispatch":
+            let subId = data["subCallId"] as? String ?? ""
+            let isError = data["isError"] as? Bool ?? false
+            let result = EventReducer.blockText(data["content"] as? [[String: Any]])
+            updateTool(id: subId, status: isError ? .error : .ok, appending: result)
+        case "tool/result":
+            let blocks = (data["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+            for block in blocks where block["type"] as? String == "tool-result" {
+                guard let callId = block["toolCallId"] as? String else { continue }
+                let isError = block["isError"] as? Bool ?? false
+                let result = EventReducer.blockText(block["content"] as? [[String: Any]])
+                updateTool(id: callId, status: isError ? .error : .ok, appending: result)
+            }
+        default:
+            break
+        }
+    }
+
+    private func appendItem(_ item: TrajectoryItem) {
+        guard appendedIDs.insert(item.id).inserted else { return }
+        items.append(item)
+        if case .tool = item { toolIndex[item.id] = items.count - 1 }
+    }
+
+    private func updateTool(id: String, status: ToolStatus, appending: String) {
+        guard let idx = toolIndex[id], idx < items.count,
+              case .tool(let tid, let name, let title, let detail, _) = items[idx], tid == id else { return }
+        let merged = appending.isEmpty ? detail : detail + "\n\n" + appending
+        items[idx] = .tool(id: tid, name: name, title: title, detail: String(merged.prefix(4000)), status: status)
+    }
+
+    private func applyProjection(key: String, value: Any) {
+        switch key {
+        case "tokenUsage":
+            guard let usage = value as? [String: Any] else { return }
+            stats.uncachedInput = usage["uncachedInputTokens"] as? Int ?? stats.uncachedInput
+            stats.output = usage["outputTokens"] as? Int ?? stats.output
+            stats.cacheRead = usage["cacheReadTokens"] as? Int ?? stats.cacheRead
+            stats.cacheWrite = usage["cacheWriteTokens"] as? Int ?? stats.cacheWrite
+        case "sessionStats":
+            guard let s = value as? [String: Any] else { return }
+            stats.turns = s["turns"] as? Int ?? stats.turns
+            stats.steps = s["steps"] as? Int ?? stats.steps
+            stats.llmMs = s["llmMs"] as? Int ?? stats.llmMs
+            stats.toolMs = s["toolMs"] as? Int ?? stats.toolMs
+        case "contextPressure":
+            guard let p = value as? [String: Any] else { return }
+            let tokens = p["projectedTokens"] as? Int ?? p["pressureTokens"] as? Int
+            if let tokens, let window = p["contextWindow"] as? Int, window > 0 {
+                contextPressure = ContextPressure(tokens: tokens, window: window)
+            }
+        case "permissions":
+            guard let p = value as? [String: Any],
+                  let current = p["currentValue"] as? String else { return }
+            let options = (p["options"] as? [[String: Any]] ?? []).compactMap { $0["value"] as? String }
+            permission = PermissionSelect(options: options, current: current)
+        case "goal":
+            guard let wrapper = value as? [String: Any],
+                  let g = wrapper["goal"] as? [String: Any],
+                  let goalId = g["id"] as? String,
+                  let objective = g["objective"] as? String else {
+                goal = nil
+                return
+            }
+            goal = GoalState(
+                id: goalId,
+                revision: g["revision"] as? Int ?? 1,
+                objective: objective,
+                phase: g["phase"] as? String ?? "active",
+                blockedMessage: (g["blockedReason"] as? [String: Any])?["message"] as? String,
+                maxRounds: g["maxGoalRounds"] as? Int ?? 0,
+                roundsStarted: wrapper["roundsStarted"] as? Int ?? 0
+            )
+        default:
+            break
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard serverState == .ready, !reconnectInFlight else { return }
+        reconnectInFlight = true
+        Task { @MainActor in
+            serverState = .connecting
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await connect()
+            reconnectInFlight = false
+        }
+    }
+
+    func retryConnect() {
+        Task { await connect() }
+    }
+
+    private func report(_ message: String) {
+        lastError = message
+    }
+}
