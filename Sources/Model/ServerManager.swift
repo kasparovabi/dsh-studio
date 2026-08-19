@@ -12,19 +12,49 @@ final class ServerManager {
 
     var spawnedByApp: Bool { process != nil }
 
-    private func readToken() -> String? {
+    // Every provider dsh supports reads its key from the env var named by
+    // `apiKeyEnv` in ~/.dsh/settings.yaml. To match a terminal-launched dsh we
+    // hand the child the login-shell environment plus every key defined in
+    // ~/.hermes/.env, so any configured provider works, not just Anthropic.
+    private func loginShellEnvironment() -> [String: String] {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let probe = Process()
+        probe.executableURL = URL(fileURLWithPath: shell)
+        probe.arguments = ["-lc", "env"]
+        let pipe = Pipe()
+        probe.standardOutput = pipe
+        probe.standardError = FileHandle.nullDevice
+        guard (try? probe.run()) != nil else { return [:] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        probe.waitUntilExit()
+        guard probe.terminationStatus == 0,
+              let text = String(data: data, encoding: .utf8) else { return [:] }
+        var result: [String: String] = [:]
+        for line in text.split(separator: "\n") {
+            guard let eq = line.firstIndex(of: "=") else { continue }
+            let key = String(line[..<eq])
+            if !key.isEmpty { result[key] = String(line[line.index(after: eq)...]) }
+        }
+        return result
+    }
+
+    private func readEnvFile() -> [String: String] {
         let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes/.env")
-        guard let text = try? String(contentsOf: path, encoding: .utf8) else { return nil }
+        guard let text = try? String(contentsOf: path, encoding: .utf8) else { return [:] }
+        var result: [String: String] = [:]
         for rawLine in text.split(whereSeparator: \.isNewline) {
             var line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
             if line.hasPrefix("export ") { line = String(line.dropFirst("export ".count)) }
-            guard line.hasPrefix("ANTHROPIC_AUTH_TOKEN=") else { continue }
-            let raw = String(line.dropFirst("ANTHROPIC_AUTH_TOKEN=".count))
-            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let eq = line.firstIndex(of: "=") else { continue }
+            let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            let value = String(line[line.index(after: eq)...])
+                .trimmingCharacters(in: .whitespaces)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            return value.isEmpty ? nil : value
+            if !value.isEmpty { result[key] = value }
         }
-        return nil
+        return result
     }
 
     func launch() throws {
@@ -34,9 +64,8 @@ final class ServerManager {
         p.executableURL = URL(fileURLWithPath: home + "/.npm-global/bin/dsh")
         p.arguments = ["web", "--port", String(port)]
         var env = ProcessInfo.processInfo.environment
-        if let token = readToken() {
-            env["ANTHROPIC_AUTH_TOKEN"] = token
-        }
+        for (key, value) in loginShellEnvironment() { env[key] = value }
+        for (key, value) in readEnvFile() { env[key] = value }
         env.removeValue(forKey: "ANTHROPIC_API_KEY")
         env["PATH"] = "\(home)/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         p.environment = env

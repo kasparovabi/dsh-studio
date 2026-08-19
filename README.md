@@ -26,7 +26,7 @@ dsh ships a capable local agent harness, but the day-to-day surface is a termina
 
 - macOS 14 or later
 - [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh) installed (`npm i -g @deepseek-ai/dsh`), reachable at `~/.npm-global/bin/dsh`
-- An `ANTHROPIC_AUTH_TOKEN` line in `~/.hermes/.env` (used when the app launches its own dsh server)
+- Provider credentials for the models you use. dsh reads each provider's key from the env var named by `apiKeyEnv` in `~/.dsh/settings.yaml`; when the app launches its own server it forwards your login-shell environment plus every key in `~/.hermes/.env`, so any provider you've configured works — not just Anthropic.
 - Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 
 ## Build & run
@@ -41,12 +41,12 @@ xcodebuild -scheme DshStudio -configuration Debug build
 
 ## How it connects
 
-On launch the app probes `http://127.0.0.1:3080`. If a dsh server is already answering there it attaches to it; otherwise it launches its own `dsh web --port <port>` (reading the token from `~/.hermes/.env`) and shuts that child down on quit. Override the port with the `DSH_STUDIO_PORT` environment variable. Requests go to `POST /api/<method>`; events arrive on `ws://127.0.0.1:<port>/api/events.mux`.
+On launch the app probes `http://127.0.0.1:3080`. If a dsh server is already answering there it attaches to it; otherwise it launches its own `dsh web --port <port>` (forwarding your login-shell environment and `~/.hermes/.env` so every configured provider is available) and shuts that child down on quit. Override the port with the `DSH_STUDIO_PORT` environment variable. Requests go to `POST /api/<method>`; events arrive on `ws://127.0.0.1:<port>/api/events.mux`.
 
 ## Notes and limitations
 
 - dsh is pre-release; its RPC surface can change between versions, and this client tracks a specific snapshot of it.
-- The token source (`~/.hermes/.env`) is currently hardcoded — adjust `ServerManager.swift` if yours lives elsewhere.
+- Credentials are taken from your login-shell environment and `~/.hermes/.env`. If you keep keys elsewhere, export them in your shell profile or add them to `~/.hermes/.env`.
 - The local dsh API is unauthenticated by design (loopback only); treat it like any other local dev server.
 - Single-user, local-first. No telemetry, no accounts.
 
