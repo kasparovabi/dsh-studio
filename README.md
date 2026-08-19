@@ -6,6 +6,8 @@ A native macOS client for **dsh** — the [`@deepseek-ai/dsh`](https://www.npmjs
 
 ![dsh-studio](docs/screenshot.png)
 
+▶ [Watch a 12-second demo](docs/demo.mp4)
+
 ## Why
 
 dsh ships a capable local agent harness, but the day-to-day surface is a terminal. dsh-studio wraps the same server in a native window: a session list, a live trajectory with streaming text and reasoning, tool calls, approvals, and the session controls (model, reasoning effort, permission mode, presets, goals) as first-class UI instead of slash commands.
