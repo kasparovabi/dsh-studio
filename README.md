@@ -6,7 +6,7 @@ A native macOS client for **dsh** — the [`@deepseek-ai/dsh`](https://www.npmjs
 
 ![dsh-studio](docs/screenshot.png)
 
-▶ [Watch a 12-second demo](docs/demo.mp4)
+▶ [Watch a 15-second demo](docs/demo.mp4)
 
 ## Why
 
