@@ -19,6 +19,17 @@ struct TrajectoryView: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.88),
+                        .init(color: .black.opacity(0), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             .onChange(of: app.items.count) {
                 if let last = app.items.last {
                     withAnimation(.easeOut(duration: 0.2)) {

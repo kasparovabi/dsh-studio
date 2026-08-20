@@ -191,6 +191,6 @@ struct ComposerView: View {
     private var sendEnabled: Bool {
         let hasContent = !app.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !app.pendingImages.isEmpty
-        return hasContent && app.selected != nil
+        return hasContent && app.selected != nil && !app.readOnlySession
     }
 }

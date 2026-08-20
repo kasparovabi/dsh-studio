@@ -105,7 +105,7 @@ struct SidebarView: View {
     }
 
     private var visibleSessions: [SessionRow] {
-        var rows = app.sessions
+        var rows = app.allSessions
         if let project = app.projectFilter {
             rows = rows.filter { $0.project == project }
         }
@@ -124,7 +124,7 @@ struct SidebarView: View {
             Button {
                 app.projectFilter = nil
             } label: {
-                Label("All projects (\(app.sessions.count))", systemImage: app.projectFilter == nil ? "checkmark" : "")
+                Label("All projects (\(app.allSessions.count))", systemImage: app.projectFilter == nil ? "checkmark" : "")
             }
             Divider()
             ForEach(app.projectCounts, id: \.name) { entry in
@@ -316,6 +316,14 @@ struct SessionRowView: View {
                         .lineLimit(1)
                 }
                 HStack(spacing: 6) {
+                    if session.agent == .claudeCode {
+                        Text("Claude Code")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Color.accentPurple)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentPurple.opacity(0.12)))
+                    }
                     Text(shortPath)
                         .foregroundStyle(Color.inkSecondary)
                         .lineLimit(1)
