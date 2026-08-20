@@ -325,7 +325,7 @@ final class AppModel: ObservableObject {
                 return
             }
         }
-        serverState = .failed("dsh did not come up within 30s — see \(server.logURL.path)")
+        serverState = .failed("dsh did not come up within 30s. See \(server.logURL.path)")
     }
 
     private func probe() async -> Bool {

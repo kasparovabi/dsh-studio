@@ -573,9 +573,9 @@ struct TopBar: View {
                     app.selectPreset(option)
                 } label: {
                     if option.id == currentId {
-                        Label("\(option.id) — \(option.name)", systemImage: "checkmark")
+                        Label("\(option.id) · \(option.name)", systemImage: "checkmark")
                     } else {
-                        Text("\(option.id) — \(option.name)")
+                        Text("\(option.id) · \(option.name)")
                     }
                 }
             }

@@ -69,7 +69,7 @@ struct SettingsView: View {
             }
 
             if row.configured, !row.writable {
-                Text("Provided by your environment, read-only here. Unset it in your shell or ~/.hermes/.env to manage it from this panel.")
+                Text("Provided by your environment and shown here for reference. Unset it in your shell or ~/.hermes/.env to manage it from this panel.")
                     .font(.system(size: 10))
                     .foregroundStyle(Color.inkSecondary)
             } else {
@@ -136,7 +136,7 @@ struct SettingsView: View {
     }
 
     private var footnote: some View {
-        Text("dsh reads each provider's key from the reference named by apiKeyEnv in ~/.dsh/settings.yaml. Adding a brand-new provider still needs its block there; this panel manages the keys those references point to.")
+        Text("dsh reads each provider's key from the reference named by apiKeyEnv in ~/.dsh/settings.yaml. Adding a provider it does not know yet still needs its block there; this panel manages the keys those references point to.")
             .font(.system(size: 10))
             .foregroundStyle(Color.inkSecondary)
     }
