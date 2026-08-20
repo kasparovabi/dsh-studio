@@ -1,5 +1,33 @@
 import SwiftUI
 
+struct SessionGroup: Identifiable {
+    var id: SessionBucket { bucket }
+    let bucket: SessionBucket
+    let rows: [SessionRow]
+}
+
+struct BucketHeader: View {
+    let title: String
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.inkSecondary)
+                .textCase(.uppercase)
+                .kerning(0.6)
+            Text("\(count)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.inkSecondary.opacity(0.7))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.regularMaterial)
+    }
+}
+
 struct SidebarView: View {
     @EnvironmentObject var app: AppModel
 
@@ -9,6 +37,7 @@ struct SidebarView: View {
             Divider().overlay(Color.hairline).padding(.horizontal, 16)
             newSessionButton
             searchField
+            projectMenu
             Text("Sessions")
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(Color.inkSecondary)
@@ -18,19 +47,25 @@ struct SidebarView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(visibleSessions) { session in
-                        SessionRowView(
-                            session: session,
-                            selected: session.id == app.selected,
-                            snippet: app.searchResults?[session.id]
-                        )
-                        .onTapGesture {
-                            Task { await app.select(session.id) }
-                        }
-                        .contextMenu {
-                            Button("Rename…") { app.beginRename(session) }
-                            Button("Fork") { app.fork(session) }
+                LazyVStack(spacing: 2, pinnedViews: [.sectionHeaders]) {
+                    ForEach(groupedSessions, id: \.bucket) { group in
+                        Section {
+                            ForEach(group.rows) { session in
+                                SessionRowView(
+                                    session: session,
+                                    selected: session.id == app.selected,
+                                    snippet: app.searchResults?[session.id]
+                                )
+                                .onTapGesture {
+                                    Task { await app.select(session.id) }
+                                }
+                                .contextMenu {
+                                    Button("Rename…") { app.beginRename(session) }
+                                    Button("Fork") { app.fork(session) }
+                                }
+                            }
+                        } header: {
+                            BucketHeader(title: group.bucket.rawValue, count: group.rows.count)
                         }
                     }
                     if app.searchResults != nil && visibleSessions.isEmpty {
@@ -70,13 +105,60 @@ struct SidebarView: View {
     }
 
     private var visibleSessions: [SessionRow] {
+        var rows = app.sessions
+        if let project = app.projectFilter {
+            rows = rows.filter { $0.project == project }
+        }
         let query = app.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return app.sessions }
+        guard !query.isEmpty else { return rows }
         let matched = app.searchResults ?? [:]
-        return app.sessions.filter {
+        return rows.filter {
             matched.keys.contains($0.id)
                 || $0.title.localizedCaseInsensitiveContains(query)
                 || $0.cwd.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var projectMenu: some View {
+        Menu {
+            Button {
+                app.projectFilter = nil
+            } label: {
+                Label("All projects (\(app.sessions.count))", systemImage: app.projectFilter == nil ? "checkmark" : "")
+            }
+            Divider()
+            ForEach(app.projectCounts, id: \.name) { entry in
+                Button {
+                    app.projectFilter = entry.name
+                } label: {
+                    Label("\(entry.name) (\(entry.count))",
+                          systemImage: app.projectFilter == entry.name ? "checkmark" : "")
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                Text(app.projectFilter ?? "All projects")
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(Color.inkSecondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
+
+    private var groupedSessions: [SessionGroup] {
+        let rows = visibleSessions
+        return SessionBucket.allCases.compactMap { bucket in
+            let matching = rows.filter { $0.bucket == bucket }
+            return matching.isEmpty ? nil : SessionGroup(bucket: bucket, rows: matching)
         }
     }
 
@@ -215,15 +297,45 @@ struct SessionRowView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.white)
                 )
-            VStack(alignment: .leading, spacing: 1) {
-                Text(session.title)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(Color.inkPrimary)
-                    .lineLimit(1)
-                Text(snippet ?? shortPath)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Color.inkSecondary)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    if session.running {
+                        Circle()
+                            .fill(Color.accentGreen)
+                            .frame(width: 6, height: 6)
+                    }
+                    Text(session.title)
+                        .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(Color.inkPrimary)
+                        .lineLimit(1)
+                }
+                if let snippet {
+                    Text(snippet)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color.inkSecondary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    Text(shortPath)
+                        .foregroundStyle(Color.inkSecondary)
+                        .lineLimit(1)
+                    if !session.relativeTime.isEmpty {
+                        Text("·").foregroundStyle(Color.inkSecondary.opacity(0.5))
+                        Text(session.relativeTime)
+                            .foregroundStyle(Color.inkSecondary)
+                            .lineLimit(1)
+                    }
+                    if session.turns > 0 {
+                        Text("·").foregroundStyle(Color.inkSecondary.opacity(0.5))
+                        HStack(spacing: 3) {
+                            Image(systemName: "bubble.left")
+                                .font(.system(size: 8))
+                            Text("\(session.turns)")
+                        }
+                        .foregroundStyle(Color.inkSecondary)
+                    }
+                }
+                .font(.system(size: 10))
             }
             Spacer(minLength: 0)
         }

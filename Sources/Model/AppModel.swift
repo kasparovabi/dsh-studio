@@ -6,6 +6,41 @@ struct SessionRow: Identifiable, Hashable {
     var cwd: String
     var updatedAt: Double
     var agentPreset: String?
+    var turns: Int = 0
+    var running: Bool = false
+
+    var project: String {
+        let name = (cwd as NSString).lastPathComponent
+        return name.isEmpty ? cwd : name
+    }
+
+    var bucket: SessionBucket {
+        guard updatedAt > 0 else { return .older }
+        let date = Date(timeIntervalSince1970: updatedAt / 1000)
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return .today }
+        if calendar.isDateInYesterday(date) { return .yesterday }
+        if let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date()), date > weekAgo {
+            return .lastWeek
+        }
+        return .older
+    }
+
+    var relativeTime: String {
+        guard updatedAt > 0 else { return "" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: Date(timeIntervalSince1970: updatedAt / 1000), relativeTo: Date())
+    }
+}
+
+enum SessionBucket: String, CaseIterable, Identifiable {
+    case today = "Today"
+    case yesterday = "Yesterday"
+    case lastWeek = "Last 7 days"
+    case older = "Older"
+
+    var id: String { rawValue }
 }
 
 struct EffortOption: Identifiable, Hashable {
@@ -212,7 +247,15 @@ final class AppModel: ObservableObject {
     private var defaultModelRevision: Int?
     @Published var goalSheetOpen = false
     @Published var goalDraft = ""
+    @Published var projectFilter: String?
     @Published var searchQuery = ""
+
+    var projectCounts: [(name: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for session in sessions { counts[session.project, default: 0] += 1 }
+        return counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .map { (name: $0.key, count: $0.value) }
+    }
     @Published var searchResults: [String: String]?
     @Published var renameTarget: SessionRow?
     @Published var renameDraft = ""
@@ -510,14 +553,18 @@ final class AppModel: ObservableObject {
             if let values { projectionSnapshots[id] = values }
             var title = values?["title"] as? String
             if title == nil, let t = (values?["title"] as? [String: Any])?["title"] as? String { title = t }
+            let stats = values?["sessionStats"] as? [String: Any]
             return SessionRow(
                 id: id,
                 title: title ?? "Untitled session",
                 cwd: item["cwd"] as? String ?? "",
                 updatedAt: item["updatedAt"] as? Double ?? 0,
-                agentPreset: item["agentPreset"] as? String
+                agentPreset: item["agentPreset"] as? String,
+                turns: stats?["turns"] as? Int ?? 0,
+                running: item["running"] as? Bool ?? false
             )
         }
+        .sorted { $0.updatedAt > $1.updatedAt }
         let liveIDs = Set(sessions.map { $0.id })
         projectionSnapshots = projectionSnapshots.filter { liveIDs.contains($0.key) }
         if selected == nil, let first = sessions.first {

@@ -14,7 +14,7 @@ dsh ships a capable local agent harness, but the day-to-day surface is a termina
 
 ## Features
 
-- **Sessions** — list, create (pick a working directory), rename, fork, search. Every session already on disk shows up, including ones started from the dsh CLI long before this app.
+- **Sessions** — a date-grouped browser (Today / Yesterday / Last 7 days / Older) sorted by recency, with per-row project, relative time, turn count, and a live dot. Filter by project, search, create (pick a working directory), rename, fork. Every session already on disk shows up, including ones started from the dsh CLI long before this app.
 - **History recovery** — dsh refuses to serve a session log whose sequence numbers or frame boundaries fail its integrity check. When that happens the app reads the log itself, skips the records it cannot parse, and shows the transcript instead of an error.
 - **Live trajectory** — streaming assistant text and reasoning, collapsible thinking, tool calls with arguments, and rendered markdown with copy-able fenced code blocks.
 - **Model & reasoning** — switch model/provider and reasoning effort per session.
