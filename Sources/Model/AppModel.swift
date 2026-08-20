@@ -200,6 +200,7 @@ final class AppModel: ObservableObject {
     @Published var presetOptions: [PresetOption] = []
     @Published var agentPreset: String?
     @Published var skills: [SkillInfo] = []
+    @Published var recoveredHistory = false
     @Published var skillsSheetOpen = false
     @Published var settingsOpen = false
     @Published var credentialRows: [CredentialRow] = []
@@ -541,6 +542,7 @@ final class AppModel: ObservableObject {
         subagentHistory = []
         pendingImages = []
         permission = nil
+        recoveredHistory = false
         attachmentImages = [:]
         attachmentFetches = []
         agentPreset = sessions.first(where: { $0.id == id })?.agentPreset
@@ -639,8 +641,23 @@ final class AppModel: ObservableObject {
                 }
             }
         } catch {
-            report("history load failed: \(error.localizedDescription)")
+            await loadHistoryFromDisk(id, generation: generation, reason: error.localizedDescription)
         }
+    }
+
+    private func loadHistoryFromDisk(_ id: String, generation: Int, reason: String) async {
+        let events = await Task.detached(priority: .userInitiated) {
+            SessionLogReader.events(for: id)
+        }.value
+        guard generation == loadGeneration else { return }
+        guard !events.isEmpty else {
+            report("history load failed: \(reason)")
+            return
+        }
+        for event in events {
+            reduce(event: event, live: false)
+        }
+        recoveredHistory = true
     }
 
     func send(mode: String = "queue") {

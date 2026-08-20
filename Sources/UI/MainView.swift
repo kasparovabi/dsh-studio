@@ -13,6 +13,9 @@ struct MainView: View {
                 ServerBanner()
             }
             TopBar()
+            if app.recoveredHistory {
+                RecoveredBanner()
+            }
             StatsRow()
             if let goal = app.goal {
                 GoalCard(goal: goal)
@@ -33,6 +36,27 @@ struct MainView: View {
             }
             ComposerView()
         }
+    }
+}
+
+struct RecoveredBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentOrange)
+            Text("Rebuilt from the session log on disk, because dsh refused to serve this history. Any record it could not parse was skipped.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.inkSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.accentOrange.opacity(0.10))
+        )
     }
 }
 
