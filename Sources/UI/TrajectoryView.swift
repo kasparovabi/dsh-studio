@@ -3,6 +3,8 @@ import SwiftUI
 struct TrajectoryView: View {
     @EnvironmentObject var app: AppModel
 
+    static let bottomAnchor = "trajectory-bottom"
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -15,6 +17,9 @@ struct TrajectoryView: View {
                             .id(item.id)
                     }
                     StreamingRows(stream: app.streamState, proxy: proxy)
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomAnchor)
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -31,15 +36,32 @@ struct TrajectoryView: View {
                 )
             )
             .onChange(of: app.items.count) {
-                if let last = app.items.last {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
+            }
+            .onChange(of: app.selected) {
+                jumpToBottom(proxy)
+            }
+            .onChange(of: app.readOnlySession) {
+                jumpToBottom(proxy)
+            }
+            .onAppear {
+                jumpToBottom(proxy)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .card(radius: 18)
+    }
+
+    // A freshly loaded transcript lays out over several passes inside the lazy
+    // stack, so one scroll lands halfway up. Repeat until the layout settles.
+    private func jumpToBottom(_ proxy: ScrollViewProxy) {
+        for delay in [0.0, 0.05, 0.2, 0.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+            }
+        }
     }
 
     struct StreamingRows: View {
@@ -87,9 +109,10 @@ struct TrajectoryView: View {
                 }
             }
             .onChange(of: stream.text) {
-                if !stream.text.isEmpty {
-                    proxy.scrollTo("streaming", anchor: .bottom)
-                }
+                proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
+            }
+            .onChange(of: stream.thinking) {
+                proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
             }
         }
     }

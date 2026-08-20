@@ -119,12 +119,17 @@ struct ComposerView: View {
                     .buttonStyle(.plain)
                     .help("Set a goal for this session")
                 }
-                TextField("Write a task…", text: $app.composer, axis: .vertical)
+                TextField(
+                    app.readOnlySession ? "Read-only transcript" : "Write a task…",
+                    text: $app.composer,
+                    axis: .vertical
+                )
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.inkPrimary)
                     .lineLimit(1...6)
                     .focused($focused)
+                    .disabled(app.readOnlySession)
                     .onSubmit { app.send() }
                 if app.running {
                     Button {

@@ -774,6 +774,7 @@ final class AppModel: ObservableObject {
     func send(mode: String = "queue") {
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = pendingImages
+        guard !readOnlySession else { return }
         guard !text.isEmpty || !images.isEmpty, let sessionId = selected else { return }
         composer = ""
         pendingImages = []
