@@ -12,8 +12,13 @@ enum ClaudeCodeReader {
         "<scheduled-wakeup", "<background-task", "[Request interrupted", "Caveat:",
     ]
 
+    // Pointing a build at throwaway transcripts is the only way to capture a
+    // screenshot or a demo without publishing someone's real sessions.
     private static var projectsRoot: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        if let override = ProcessInfo.processInfo.environment["DSH_STUDIO_CLAUDE_ROOT"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
     }
 
     private static func text(of content: Any?) -> String {

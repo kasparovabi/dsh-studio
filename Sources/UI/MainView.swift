@@ -730,7 +730,7 @@ struct StatsRow: View {
             TokenCard()
             MetricsCard()
         }
-        .frame(height: 122)
+        .frame(height: 62)
     }
 }
 
@@ -739,29 +739,61 @@ struct TokenCard: View {
 
     private var segments: [(Color, Int, String)] {
         [
-            (.accentOrange, app.stats.uncachedInput, "Input"),
-            (.accentPurple, app.stats.output, "Output"),
-            (.accentTeal, app.stats.cacheRead, "Cache read"),
-            (.accentGreen, app.stats.cacheWrite, "Cache write"),
+            (.accentOrange, app.stats.uncachedInput, "In"),
+            (.accentPurple, app.stats.output, "Out"),
+            (.accentTeal, app.stats.cacheRead, "Read"),
+            (.accentGreen, app.stats.cacheWrite, "Write"),
         ]
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Token usage")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.inkSecondary)
-                .kerning(0.3)
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(formatCount(app.stats.totalTokens))
-                    .font(.system(size: 21, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(Color.inkPrimary)
+                    .fixedSize()
                 Text("tokens")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10.5))
                     .foregroundStyle(Color.inkSecondary)
-                Spacer()
+                    .fixedSize()
+                Spacer(minLength: 10)
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                    HStack(spacing: 4) {
+                        Circle().fill(seg.0).frame(width: 6, height: 6)
+                        Text(seg.2)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.inkSecondary)
+                    }
+                    .fixedSize()
+                    .help("\(seg.2): \(formatCount(seg.1)) tokens")
+                }
+                if let pressure = app.contextPressure {
+                    HStack(spacing: 6) {
+                        Text("Context")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.inkSecondary)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.black.opacity(0.06))
+                                Capsule()
+                                    .fill(pressureColor(pressure.fraction))
+                                    .frame(width: max(geo.size.width * pressure.fraction, 3))
+                            }
+                        }
+                        .frame(width: 48, height: 5)
+                        Text("\(Int(pressure.fraction * 100))%")
+                            .font(.system(size: 10, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(pressureColor(pressure.fraction))
+                    }
+                    .fixedSize()
+                    .padding(.leading, 4)
+                    .help("\(formatCount(pressure.tokens)) of \(formatCount(pressure.window)) context tokens")
+                }
             }
+            .lineLimit(1)
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     let total = max(app.stats.totalTokens, 1)
@@ -777,42 +809,10 @@ struct TokenCard: View {
                     }
                 }
             }
-            .frame(height: 14)
-            HStack(spacing: 12) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
-                    HStack(spacing: 4) {
-                        Circle().fill(seg.0).frame(width: 6, height: 6)
-                        Text(seg.2)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.inkSecondary)
-                    }
-                }
-                Spacer()
-                if let pressure = app.contextPressure {
-                    HStack(spacing: 6) {
-                        Text("Context")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.inkSecondary)
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color.black.opacity(0.06))
-                                Capsule()
-                                    .fill(pressureColor(pressure.fraction))
-                                    .frame(width: max(geo.size.width * pressure.fraction, 3))
-                            }
-                        }
-                        .frame(width: 60, height: 5)
-                        Text("\(Int(pressure.fraction * 100))%")
-                            .font(.system(size: 10, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(pressureColor(pressure.fraction))
-                    }
-                    .fixedSize()
-                    .help("\(formatCount(pressure.tokens)) of \(formatCount(pressure.window)) context tokens")
-                }
-            }
+            .frame(height: 9)
         }
-        .padding(16)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(radius: 16)
     }
@@ -837,17 +837,17 @@ struct MetricsCard: View {
     }
 
     private var divider: some View {
-        Rectangle().fill(Color.hairline).frame(width: 1, height: 40)
+        Rectangle().fill(Color.hairline).frame(width: 1, height: 26)
     }
 
     private func metric(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 1) {
             Text(value)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(Color.inkPrimary)
             Text(label)
-                .font(.system(size: 10.5))
+                .font(.system(size: 10))
                 .foregroundStyle(Color.inkSecondary)
         }
         .frame(maxWidth: .infinity)
