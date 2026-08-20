@@ -140,8 +140,29 @@ final class StreamState: ObservableObject {
     }
 }
 
+struct CredentialRow: Identifiable, Equatable {
+    var id: String { ref }
+    let ref: String
+    let label: String
+    let provider: String
+    var configured: Bool
+    var writable: Bool
+    var source: String?
+}
+
 @MainActor
 final class AppModel: ObservableObject {
+    static let knownCredentials: [CredentialRow] = [
+        CredentialRow(ref: "ANTHROPIC_AUTH_TOKEN", label: "Anthropic", provider: "anthropic", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "DEEPSEEK_API_KEY", label: "DeepSeek", provider: "deepseek-official", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "OPENAI_API_KEY", label: "OpenAI", provider: "openai", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "GEMINI_API_KEY", label: "Google Gemini", provider: "gemini", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "OPENROUTER_API_KEY", label: "OpenRouter", provider: "openrouter", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "MOONSHOT_API_KEY", label: "Moonshot / Kimi", provider: "moonshot", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "ZHIPUAI_API_KEY", label: "Zhipu / GLM", provider: "zhipu", configured: false, writable: true, source: nil),
+        CredentialRow(ref: "XAI_API_KEY", label: "xAI Grok", provider: "xai", configured: false, writable: true, source: nil),
+    ]
+
     enum ServerState: Equatable {
         case idle, connecting, launching, ready
         case failed(String)
@@ -180,6 +201,14 @@ final class AppModel: ObservableObject {
     @Published var agentPreset: String?
     @Published var skills: [SkillInfo] = []
     @Published var skillsSheetOpen = false
+    @Published var settingsOpen = false
+    @Published var credentialRows: [CredentialRow] = []
+    @Published var credentialDrafts: [String: String] = [:]
+    @Published var settingsProvider = ""
+    @Published var settingsModel = ""
+    @Published var settingsBusy = false
+    @Published var settingsNotice: String?
+    private var defaultModelRevision: Int?
     @Published var goalSheetOpen = false
     @Published var goalDraft = ""
     @Published var searchQuery = ""
@@ -339,6 +368,126 @@ final class AppModel: ObservableObject {
             } catch {
                 report("skill list failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    func openSettings() {
+        settingsOpen = true
+        settingsNotice = nil
+        Task { await loadSettings() }
+    }
+
+    func loadSettings() async {
+        var refs = AppModel.knownCredentials.map { $0.ref }
+        var labels: [String: (String, String)] = [:]
+        for row in AppModel.knownCredentials { labels[row.ref] = (row.label, row.provider) }
+
+        if let value = try? await client.call("settings.describe") as? [String: Any],
+           let namespaces = value["namespaces"] as? [[String: Any]] {
+            for ns in namespaces {
+                let name = ns["ns"] as? String
+                let doc = ns["value"] as? [String: Any]
+                if name == "agent-default-model" {
+                    settingsProvider = doc?["provider"] as? String ?? settingsProvider
+                    settingsModel = doc?["model"] as? String ?? settingsModel
+                    defaultModelRevision = ns["revision"] as? Int
+                }
+                for found in Self.apiKeyEnvRefs(in: doc) where !refs.contains(found) {
+                    refs.append(found)
+                    labels[found] = (found, name ?? "")
+                }
+            }
+        }
+
+        var rows: [CredentialRow] = []
+        if let value = try? await client.call("credentials.describe", ["refs": refs]) as? [String: Any],
+           let creds = value["credentials"] as? [String: Any] {
+            for ref in refs {
+                let info = creds[ref] as? [String: Any]
+                let meta = labels[ref] ?? (ref, "")
+                rows.append(CredentialRow(
+                    ref: ref,
+                    label: meta.0,
+                    provider: meta.1,
+                    configured: info?["configured"] as? Bool ?? false,
+                    writable: info?["writable"] as? Bool ?? true,
+                    source: info?["source"] as? String
+                ))
+            }
+        } else {
+            rows = AppModel.knownCredentials
+        }
+        credentialRows = rows
+    }
+
+    private static func apiKeyEnvRefs(in doc: [String: Any]?) -> [String] {
+        guard let doc else { return [] }
+        var refs: [String] = []
+        if let direct = doc["apiKeyEnv"] as? String, !direct.isEmpty { refs.append(direct) }
+        if let providers = doc["providers"] as? [String: Any] {
+            for (_, p) in providers {
+                if let env = (p as? [String: Any])?["apiKeyEnv"] as? String, !env.isEmpty {
+                    refs.append(env)
+                }
+            }
+        }
+        return refs
+    }
+
+    func saveCredential(_ ref: String) {
+        let value = (credentialDrafts[ref] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        settingsBusy = true
+        settingsNotice = nil
+        Task {
+            do {
+                _ = try await client.call("credentials.set", ["ref": ref, "value": value])
+                credentialDrafts[ref] = ""
+                settingsNotice = "\(ref) saved"
+                await loadSettings()
+            } catch {
+                settingsNotice = "Could not save \(ref): \(error.localizedDescription)"
+            }
+            settingsBusy = false
+        }
+    }
+
+    func clearCredential(_ ref: String) {
+        settingsBusy = true
+        settingsNotice = nil
+        Task {
+            do {
+                _ = try await client.call("credentials.unset", ["ref": ref])
+                credentialDrafts[ref] = ""
+                settingsNotice = "\(ref) removed"
+                await loadSettings()
+            } catch {
+                settingsNotice = "Could not remove \(ref): \(error.localizedDescription)"
+            }
+            settingsBusy = false
+        }
+    }
+
+    func saveDefaultModel() {
+        let prov = settingsProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mdl = settingsModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prov.isEmpty, !mdl.isEmpty else { return }
+        settingsBusy = true
+        settingsNotice = nil
+        Task {
+            do {
+                var payload: [String: Any] = [
+                    "ns": "agent-default-model",
+                    "patch": ["provider": prov, "model": mdl],
+                ]
+                if let rev = defaultModelRevision { payload["revision"] = rev }
+                _ = try await client.call("settings.update", payload)
+                settingsNotice = "Default model saved"
+                await loadSettings()
+            } catch {
+                settingsNotice = "Could not save default model: \(error.localizedDescription)"
+            }
+            settingsBusy = false
         }
     }
 

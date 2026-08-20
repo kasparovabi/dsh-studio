@@ -446,10 +446,24 @@ struct TopBar: View {
                 effortMenu(option)
             }
             modelMenu
+            Button {
+                app.openSettings()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.inkSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.black.opacity(0.04)))
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .card(radius: 16)
+        .sheet(isPresented: $app.settingsOpen) {
+            SettingsView()
+        }
         .sheet(isPresented: $app.skillsSheetOpen) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
