@@ -43,9 +43,6 @@ struct TrajectoryView: View {
             .onChange(of: app.selected) {
                 jumpToBottom(proxy)
             }
-            .onChange(of: app.readOnlySession) {
-                jumpToBottom(proxy)
-            }
             .onAppear {
                 jumpToBottom(proxy)
             }

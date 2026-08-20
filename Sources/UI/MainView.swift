@@ -16,9 +16,6 @@ struct MainView: View {
             if app.recoveredHistory {
                 RecoveredBanner()
             }
-            if app.readOnlySession {
-                ReadOnlyBanner(truncated: app.truncatedTranscript)
-            }
             StatsRow()
             if let goal = app.goal {
                 GoalCard(goal: goal)
@@ -39,34 +36,6 @@ struct MainView: View {
             }
             ComposerView()
         }
-    }
-}
-
-struct ReadOnlyBanner: View {
-    let truncated: Bool
-
-    private var message: String {
-        let base = "A Claude Code transcript. This app drives dsh, so the session can be read but not continued."
-        return truncated ? base + " Showing the last \(ClaudeCodeReader.transcriptCap) messages." : base
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "book.closed")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.accentPurple)
-            Text(message)
-                .font(.system(size: 11))
-                .foregroundStyle(Color.inkSecondary)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.accentPurple.opacity(0.10))
-        )
     }
 }
 
@@ -480,29 +449,27 @@ struct TopBar: View {
                 .padding(.vertical, 6)
                 .background(Capsule().fill(Color.accentOrange.opacity(0.12)))
             }
-            if !app.readOnlySession {
-                if let permission = app.permission {
-                    permissionMenu(permission)
-                }
-                if !app.presetOptions.isEmpty {
-                    presetMenu
-                }
-                Button {
-                    app.openSkills()
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.inkSecondary)
-                        .frame(width: 26, height: 26)
-                        .background(Circle().fill(Color.black.opacity(0.04)))
-                }
-                .buttonStyle(.plain)
-                .help("Available skills")
-                if let option = app.currentModelOption, !option.efforts.isEmpty {
-                    effortMenu(option)
-                }
-                modelMenu
+            if let permission = app.permission {
+                permissionMenu(permission)
             }
+            if !app.presetOptions.isEmpty {
+                presetMenu
+            }
+            Button {
+                app.openSkills()
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.inkSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.black.opacity(0.04)))
+            }
+            .buttonStyle(.plain)
+            .help("Available skills")
+            if let option = app.currentModelOption, !option.efforts.isEmpty {
+                effortMenu(option)
+            }
+            modelMenu
             Button {
                 app.openSettings()
             } label: {
@@ -672,7 +639,7 @@ struct TopBar: View {
     }
 
     private var currentSession: SessionRow? {
-        app.allSessions.first { $0.id == app.selected }
+        app.sessions.first { $0.id == app.selected }
     }
 
     private var currentTitle: String {

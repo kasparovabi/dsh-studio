@@ -1,17 +1,5 @@
 import SwiftUI
 
-enum SessionAgent: String, Hashable {
-    case dsh
-    case claudeCode
-
-    var label: String {
-        switch self {
-        case .dsh: return "dsh"
-        case .claudeCode: return "Claude Code"
-        }
-    }
-}
-
 struct SessionRow: Identifiable, Hashable {
     let id: String
     var title: String
@@ -20,8 +8,6 @@ struct SessionRow: Identifiable, Hashable {
     var agentPreset: String?
     var turns: Int = 0
     var running: Bool = false
-    var agent: SessionAgent = .dsh
-    var logPath: String?
 
     var project: String {
         let name = (cwd as NSString).lastPathComponent
@@ -261,19 +247,12 @@ final class AppModel: ObservableObject {
     private var defaultModelRevision: Int?
     @Published var goalSheetOpen = false
     @Published var goalDraft = ""
-    @Published var claudeSessions: [SessionRow] = []
-    @Published var readOnlySession = false
-    @Published var truncatedTranscript = false
     @Published var projectFilter: String?
     @Published var searchQuery = ""
 
-    var allSessions: [SessionRow] {
-        (sessions + claudeSessions).sorted { $0.updatedAt > $1.updatedAt }
-    }
-
     var projectCounts: [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
-        for session in allSessions { counts[session.project, default: 0] += 1 }
+        for session in sessions { counts[session.project, default: 0] += 1 }
         return counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
             .map { (name: $0.key, count: $0.value) }
     }
@@ -320,7 +299,6 @@ final class AppModel: ObservableObject {
 
     func bootstrap() {
         guard serverState == .idle else { return }
-        scanClaudeSessions()
         Task { await connect() }
     }
 
@@ -435,42 +413,6 @@ final class AppModel: ObservableObject {
                 report("skill list failed: \(error.localizedDescription)")
             }
         }
-    }
-
-    func scanClaudeSessions() {
-        Task {
-            let rows = await Task.detached(priority: .utility) {
-                ClaudeCodeReader.scan()
-            }.value
-            claudeSessions = rows
-        }
-    }
-
-    private func openClaudeSession(_ row: SessionRow) async {
-        selected = row.id
-        items = []
-        appendedIDs = []
-        toolIndex = [:]
-        stats = SessionStats()
-        running = false
-        streamState.clear()
-        queueItems = []
-        contextPressure = nil
-        goal = nil
-        jobs = []
-        subagents = []
-        permission = nil
-        recoveredHistory = false
-        readOnlySession = true
-        loadGeneration += 1
-        let generation = loadGeneration
-        guard let path = row.logPath else { return }
-        let result = await Task.detached(priority: .userInitiated) {
-            ClaudeCodeReader.transcript(at: path)
-        }.value
-        guard generation == loadGeneration else { return }
-        items = result.items
-        truncatedTranscript = result.truncated
     }
 
     func openSettings() {
@@ -631,12 +573,6 @@ final class AppModel: ObservableObject {
     }
 
     func select(_ id: String) async {
-        if let claude = claudeSessions.first(where: { $0.id == id }) {
-            await openClaudeSession(claude)
-            return
-        }
-        readOnlySession = false
-        truncatedTranscript = false
         selected = id
         items = []
         appendedIDs = []
@@ -774,7 +710,6 @@ final class AppModel: ObservableObject {
     func send(mode: String = "queue") {
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = pendingImages
-        guard !readOnlySession else { return }
         guard !text.isEmpty || !images.isEmpty, let sessionId = selected else { return }
         composer = ""
         pendingImages = []
