@@ -725,6 +725,7 @@ struct TokenCard: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.inkSecondary)
                     .fixedSize()
+                    .help("Everything this session has spent, every turn added up, cache reads included. Context shows how full the window is right now.")
                 Spacer(minLength: 10)
                 ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                     HStack(spacing: 4) {

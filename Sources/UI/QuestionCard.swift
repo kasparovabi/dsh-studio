@@ -36,9 +36,9 @@ struct QuestionCard: View {
                             .foregroundStyle(Color.inkSecondary)
                     }
                     if !item.options.isEmpty {
-                        FlowChips(item: item, selections: $selections)
+                        FlowChips(item: item, selections: $selections, custom: $custom)
                     }
-                    TextField("Other…", text: bindingCustom(item.id))
+                    TextField("Other…", text: bindingCustom(item))
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .padding(.horizontal, 10)
@@ -51,6 +51,18 @@ struct QuestionCard: View {
             }
             HStack {
                 Spacer()
+                Button {
+                    app.skipQuestion(request)
+                } label: {
+                    Text("Skip")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.inkSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(Color.black.opacity(0.05)))
+                }
+                .buttonStyle(.plain)
+                .help("Let the agent continue without an answer")
                 Button {
                     app.answerQuestion(request, selections: selections, custom: custom)
                 } label: {
@@ -82,10 +94,18 @@ struct QuestionCard: View {
         }
     }
 
-    private func bindingCustom(_ id: String) -> Binding<String> {
+    // dsh rejects an answer that carries both a chip and typed text when the
+    // question takes one answer, so the two clear each other here rather than
+    // failing after the fact.
+    private func bindingCustom(_ item: QuestionItem) -> Binding<String> {
         Binding(
-            get: { custom[id] ?? "" },
-            set: { custom[id] = $0 }
+            get: { custom[item.id] ?? "" },
+            set: { text in
+                custom[item.id] = text
+                if !item.multiSelect, !text.isEmpty {
+                    selections[item.id] = []
+                }
+            }
         )
     }
 }
@@ -93,6 +113,7 @@ struct QuestionCard: View {
 struct FlowChips: View {
     let item: QuestionItem
     @Binding var selections: [String: Set<String>]
+    @Binding var custom: [String: String]
 
     var body: some View {
         let columns = [GridItem(.adaptive(minimum: 120), spacing: 6, alignment: .leading)]
@@ -104,7 +125,10 @@ struct FlowChips: View {
                     if isOn {
                         set.remove(option.label)
                     } else {
-                        if !item.multiSelect { set.removeAll() }
+                        if !item.multiSelect {
+                            set.removeAll()
+                            custom[item.id] = ""
+                        }
                         set.insert(option.label)
                     }
                     selections[item.id] = set

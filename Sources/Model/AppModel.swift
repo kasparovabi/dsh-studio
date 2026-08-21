@@ -278,6 +278,7 @@ final class AppModel: ObservableObject {
     private var loadGeneration = 0
     private var projectionSnapshots: [String: [String: Any]] = [:]
     private var reconnectInFlight = false
+    private var errorGeneration = 0
 
     var serverStatusText: String {
         switch serverState {
@@ -574,6 +575,7 @@ final class AppModel: ObservableObject {
 
     func select(_ id: String) async {
         selected = id
+        lastError = nil
         items = []
         appendedIDs = []
         toolIndex = [:]
@@ -713,6 +715,7 @@ final class AppModel: ObservableObject {
         guard !text.isEmpty || !images.isEmpty, let sessionId = selected else { return }
         composer = ""
         pendingImages = []
+        lastError = nil
         var content: [[String: Any]] = images.map {
             ["type": "image", "data": $0.data.base64EncodedString(), "mediaType": $0.mediaType, "name": $0.name]
         }
@@ -769,6 +772,59 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func mediaType(forExtension ext: String) -> String? {
+        switch ext.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        default: return nil
+        }
+    }
+
+    // The field editor swallows Cmd V for text, so the composer hands the event
+    // here first and only lets it through when the pasteboard holds no image.
+    @discardableResult
+    func pasteImageFromClipboard() -> Bool {
+        let pasteboard = NSPasteboard.general
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            var attached = false
+            for url in urls {
+                guard let type = mediaType(forExtension: url.pathExtension),
+                      let data = try? Data(contentsOf: url) else { continue }
+                pendingImages.append(PendingImage(
+                    name: url.lastPathComponent,
+                    mediaType: type,
+                    data: data,
+                    preview: NSImage(data: data)
+                ))
+                attached = true
+            }
+            if attached { return true }
+        }
+        if let data = pasteboard.data(forType: .png) {
+            pendingImages.append(PendingImage(
+                name: "Pasted image.png",
+                mediaType: "image/png",
+                data: data,
+                preview: NSImage(data: data)
+            ))
+            return true
+        }
+        // A screenshot lands as TIFF, which no provider accepts, so re-encode it.
+        if let tiff = pasteboard.data(forType: .tiff),
+           let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            pendingImages.append(PendingImage(
+                name: "Pasted image.png",
+                mediaType: "image/png",
+                data: png,
+                preview: NSImage(data: png)
+            ))
+            return true
+        }
+        return false
     }
 
     func removePendingImage(_ image: PendingImage) {
@@ -1135,17 +1191,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func skipQuestion(_ request: QuestionRequest) {
+        questions.removeAll { $0.rpcId == request.rpcId }
+        Task {
+            do {
+                try await client.cancel(rpcId: request.rpcId, reason: "the user skipped this question")
+            } catch {
+                report("skip failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // dsh validates the shape before it hands the answer to the agent: one entry
+    // per question in the order asked, no duplicate labels, no blank custom
+    // text, and for a single-answer question either a selection or custom text
+    // but never both. Anything else comes back as bad-response.
     func answerQuestion(_ request: QuestionRequest, selections: [String: Set<String>], custom: [String: String]) {
         questions.removeAll { $0.rpcId == request.rpcId }
         Task {
             do {
                 let answers: [[String: Any]] = request.items.map { item in
-                    var answer: [String: Any] = [
-                        "id": item.id,
-                        "selected": Array(selections[item.id] ?? []),
-                    ]
-                    if let text = custom[item.id], !text.isEmpty {
-                        answer["custom"] = text
+                    let typed = (custom[item.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    var picked = Array(selections[item.id] ?? []).filter { label in
+                        item.options.contains { $0.label == label }
+                    }
+                    if !item.multiSelect {
+                        if !typed.isEmpty { picked = [] }
+                        if picked.count > 1 { picked = Array(picked.prefix(1)) }
+                    }
+                    var answer: [String: Any] = ["id": item.id, "selected": picked]
+                    if !typed.isEmpty {
+                        answer["custom"] = typed
                     }
                     return answer
                 }
@@ -1197,6 +1273,7 @@ final class AppModel: ObservableObject {
             }
         case "turn/start":
             running = true
+            if live { lastError = nil }
         case "turn/end":
             running = false
             if live { refreshSubagents() }
@@ -1327,7 +1404,16 @@ final class AppModel: ObservableObject {
         Task { await connect() }
     }
 
+    // A failure belongs to the moment it happened, so it fades on its own and
+    // whenever the session moves on. Otherwise it outlives its context and
+    // reads as a fault in whatever the user is doing now.
     private func report(_ message: String) {
         lastError = message
+        errorGeneration += 1
+        let generation = errorGeneration
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            if generation == errorGeneration { lastError = nil }
+        }
     }
 }

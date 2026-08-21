@@ -4,6 +4,7 @@ struct TrajectoryView: View {
     @EnvironmentObject var app: AppModel
 
     static let bottomAnchor = "trajectory-bottom"
+    static let fadeBand: CGFloat = 46
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -17,8 +18,11 @@ struct TrajectoryView: View {
                             .id(item.id)
                     }
                     StreamingRows(stream: app.streamState, proxy: proxy)
+                    // The card fades its bottom edge, so the anchor reserves
+                    // that band. Without it a scroll that lands perfectly still
+                    // leaves the newest line dissolving into the gradient.
                     Color.clear
-                        .frame(height: 1)
+                        .frame(height: Self.fadeBand)
                         .id(Self.bottomAnchor)
                 }
                 .padding(18)
@@ -28,7 +32,7 @@ struct TrajectoryView: View {
                 LinearGradient(
                     stops: [
                         .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.88),
+                        .init(color: .black, location: 0.95),
                         .init(color: .black.opacity(0), location: 1),
                     ],
                     startPoint: .top,
@@ -37,6 +41,9 @@ struct TrajectoryView: View {
             )
             .onChange(of: app.items.count) {
                 withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
+                DispatchQueue.main.async {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
             }
@@ -105,10 +112,16 @@ struct TrajectoryView: View {
                     .id("streaming")
                 }
             }
-            .onChange(of: stream.text) {
-                proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
-            }
-            .onChange(of: stream.thinking) {
+            // A delta arrives before its line is laid out, so scrolling in the
+            // same pass lands short of the new height. Chase it once the layout
+            // has settled as well.
+            .onChange(of: stream.text) { follow() }
+            .onChange(of: stream.thinking) { follow() }
+        }
+
+        private func follow() {
+            proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
+            DispatchQueue.main.async {
                 proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
             }
         }

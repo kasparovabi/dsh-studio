@@ -42,6 +42,20 @@ struct DshClient {
     }
 
     func respond(rpcId: String, value: [String: Any]) async throws {
+        try await send(rpcId: rpcId, result: ["ok": true, "value": value])
+    }
+
+    // A question the user declines is not an error to report but a documented
+    // outcome: dsh accepts the refusal only as a failed response carrying this
+    // exact code, and answers anything else with bad-response.
+    func cancel(rpcId: String, reason: String) async throws {
+        try await send(rpcId: rpcId, result: [
+            "ok": false,
+            "error": ["code": "cancelled", "message": reason],
+        ])
+    }
+
+    private func send(rpcId: String, result: [String: Any]) async throws {
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/respond") else {
             throw DshError.protocolError("invalid respond url")
         }
@@ -52,7 +66,7 @@ struct DshClient {
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "type": "client-response",
             "rpcId": rpcId,
-            "result": ["ok": true, "value": value],
+            "result": result,
         ])
         let (data, _) = try await URLSession.shared.data(for: req)
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
