@@ -11,6 +11,12 @@ struct PhoneRootView: View {
             VStack(spacing: 0) {
                 PhoneTopBar(sessionsOpen: $sessionsOpen, newOpen: $newOpen)
                 center
+                if let approval = app.approvals.first(where: { $0.sessionId == app.selected }) {
+                    PhoneApprovalCard(approval: approval)
+                }
+                if let question = app.question {
+                    PhoneQuestionCard(request: question)
+                }
                 PhoneComposer()
             }
         }
