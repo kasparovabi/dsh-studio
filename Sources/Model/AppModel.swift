@@ -138,7 +138,7 @@ struct PendingImage: Identifiable, Equatable {
     let name: String
     let mediaType: String
     let data: Data
-    let preview: NSImage?
+    let preview: PlatformImage?
 }
 
 struct QuestionOption: Identifiable, Hashable {
@@ -213,6 +213,7 @@ final class AppModel: ObservableObject {
     @Published var running = false
     @Published var provider = ""
     @Published var model = ""
+    @Published var hostCwd = ""
     @Published var reasoningEffort: String?
     @Published var modelOptions: [ModelOption] = []
     @Published var approvals: [ApprovalRequest] = []
@@ -225,7 +226,7 @@ final class AppModel: ObservableObject {
     @Published var lastError: String?
     @Published var wsConnected = false
     @Published var pendingImages: [PendingImage] = []
-    @Published var attachmentImages: [String: NSImage] = [:]
+    @Published var attachmentImages: [String: PlatformImage] = [:]
     @Published var contextPressure: ContextPressure?
     @Published var jobs: [JobView] = []
     @Published var subagents: [SubagentEntry] = []
@@ -273,8 +274,14 @@ final class AppModel: ObservableObject {
         let raw = Int(ProcessInfo.processInfo.environment["DSH_STUDIO_PORT"] ?? "") ?? 3080
         return (1...65535).contains(raw) ? raw : 3080
     }()
-    lazy var client = DshClient(port: port)
+    // The desk app owns the server it talks to, so loopback is the only
+    // sensible address there. The phone reaches one over the tailnet, so its
+    // layer overwrites this before connecting.
+    @Published var host: String = UserDefaults.standard.string(forKey: "dsh.host") ?? "127.0.0.1"
+    lazy var client = DshClient(host: host, port: port)
+    #if os(macOS)
     private lazy var server = ServerManager(port: port)
+    #endif
     private var socket: EventSocket?
     private var loadGeneration = 0
     private var projectionSnapshots: [String: [String: Any]] = [:]
@@ -296,7 +303,9 @@ final class AppModel: ObservableObject {
     }
 
     func shutdownIfSpawned() {
+        #if os(macOS)
         if server.spawnedByApp { server.terminate() }
+        #endif
     }
 
     func bootstrap() {
@@ -305,6 +314,7 @@ final class AppModel: ObservableObject {
     }
 
     func connect() async {
+        client.host = host
         serverState = .connecting
         for attempt in 0..<3 {
             if await probe() {
@@ -313,6 +323,9 @@ final class AppModel: ObservableObject {
             }
             if attempt < 2 { try? await Task.sleep(nanoseconds: 300_000_000) }
         }
+        // Only the machine running the server can start one. From the phone a
+        // silent server is the end of the road, so say so instead of stalling.
+        #if os(macOS)
         serverState = .launching
         do {
             try server.launch()
@@ -328,6 +341,9 @@ final class AppModel: ObservableObject {
             }
         }
         serverState = .failed("dsh did not come up within 30s. See \(server.logURL.path)")
+        #else
+        serverState = .failed("No dsh server answered at \(host):\(port)")
+        #endif
     }
 
     private func probe() async -> Bool {
@@ -340,6 +356,7 @@ final class AppModel: ObservableObject {
         if let host = (try? await client.call("host.describe")) as? [String: Any] {
             provider = host["provider"] as? String ?? ""
             model = host["model"] as? String ?? ""
+            hostCwd = host["cwd"] as? String ?? ""
         }
         approvals = []
         questions = []
@@ -695,10 +712,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // The salvage path reads the log off the disk the server writes to, which
+    // only the machine hosting it can reach.
     private func loadHistoryFromDisk(_ id: String, generation: Int, reason: String) async {
+        #if os(macOS)
         let events = await Task.detached(priority: .userInitiated) {
             SessionLogReader.events(for: id)
         }.value
+        #else
+        let events: [[String: Any]] = []
+        #endif
         guard generation == loadGeneration else { return }
         guard !events.isEmpty else {
             report("history load failed: \(reason)")
@@ -743,6 +766,9 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // A file panel and a pasteboard are desk furniture. The phone reaches its
+    // pictures through a photo picker in its own layer instead.
+    #if os(macOS)
     func attachImages() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -773,11 +799,21 @@ final class AppModel: ObservableObject {
                         name: url.lastPathComponent,
                         mediaType: mediaType,
                         data: data,
-                        preview: NSImage(data: data)
+                        preview: PlatformImage(data: data)
                     ))
                 }
             }
         }
+    }
+    #endif
+
+    func addPendingImage(name: String, mediaType: String, data: Data) {
+        pendingImages.append(PendingImage(
+            name: name,
+            mediaType: mediaType,
+            data: data,
+            preview: PlatformImage(data: data)
+        ))
     }
 
     private func mediaType(forExtension ext: String) -> String? {
@@ -792,6 +828,7 @@ final class AppModel: ObservableObject {
 
     // The field editor swallows Cmd V for text, so the composer hands the event
     // here first and only lets it through when the pasteboard holds no image.
+    #if os(macOS)
     @discardableResult
     func pasteImageFromClipboard() -> Bool {
         let pasteboard = NSPasteboard.general
@@ -804,7 +841,7 @@ final class AppModel: ObservableObject {
                     name: url.lastPathComponent,
                     mediaType: type,
                     data: data,
-                    preview: NSImage(data: data)
+                    preview: PlatformImage(data: data)
                 ))
                 attached = true
             }
@@ -815,7 +852,7 @@ final class AppModel: ObservableObject {
                 name: "Pasted image.png",
                 mediaType: "image/png",
                 data: data,
-                preview: NSImage(data: data)
+                preview: PlatformImage(data: data)
             ))
             return true
         }
@@ -826,12 +863,13 @@ final class AppModel: ObservableObject {
                 name: "Pasted image.png",
                 mediaType: "image/png",
                 data: png,
-                preview: NSImage(data: png)
+                preview: PlatformImage(data: png)
             ))
             return true
         }
         return false
     }
+    #endif
 
     func removePendingImage(_ image: PendingImage) {
         pendingImages.removeAll { $0.id == image.id }
@@ -850,7 +888,7 @@ final class AppModel: ObservableObject {
                 ]) as? [String: Any]
                 if let b64 = value?["data"] as? String,
                    let data = Data(base64Encoded: b64),
-                   let image = NSImage(data: data) {
+                   let image = PlatformImage(data: data) {
                     attachmentImages[attachmentId] = image
                 }
             } catch {
@@ -1057,6 +1095,7 @@ final class AppModel: ObservableObject {
         }
     }
 
+    #if os(macOS)
     func newSession() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -1070,8 +1109,9 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    #endif
 
-    private func createSession(cwd: String) async {
+    func createSession(cwd: String) async {
         do {
             let value = try await client.call("session.create", ["cwd": cwd]) as? [String: Any]
             await refreshSessions()
@@ -1090,7 +1130,7 @@ final class AppModel: ObservableObject {
         socket?.stop()
         frameContinuation?.finish()
         frameConsumer?.cancel()
-        guard let wsURL = URL(string: "ws://127.0.0.1:\(port)/api/events.mux") else { return }
+        guard let wsURL = URL(string: "ws://\(host):\(port)/api/events.mux") else { return }
         let (stream, continuation) = AsyncStream.makeStream(of: [String: Any].self)
         frameContinuation = continuation
         frameConsumer = Task { @MainActor [weak self] in

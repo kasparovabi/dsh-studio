@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 // dsh refuses to serve a session log whose sequence numbers or frame boundaries
@@ -84,3 +85,4 @@ enum SessionLogReader {
         return parsed
     }
 }
+#endif
