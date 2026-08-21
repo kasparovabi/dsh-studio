@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 final class ServerManager {
@@ -91,3 +92,4 @@ final class ServerManager {
         process = nil
     }
 }
+#endif

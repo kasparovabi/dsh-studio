@@ -13,10 +13,11 @@ enum DshError: LocalizedError {
 }
 
 struct DshClient {
+    var host: String = "127.0.0.1"
     let port: Int
 
     func call(_ method: String, _ payload: Any = [String: Any]()) async throws -> Any {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/\(method)") else {
+        guard let url = URL(string: "http://\(host):\(port)/api/\(method)") else {
             throw DshError.protocolError("invalid url for \(method)")
         }
         var req = URLRequest(url: url)
@@ -56,7 +57,7 @@ struct DshClient {
     }
 
     private func send(rpcId: String, result: [String: Any]) async throws {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/respond") else {
+        guard let url = URL(string: "http://\(host):\(port)/api/respond") else {
             throw DshError.protocolError("invalid respond url")
         }
         var req = URLRequest(url: url)

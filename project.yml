@@ -3,12 +3,15 @@ options:
   bundleIdPrefix: com.kasparov
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
 targets:
   DshStudio:
     type: application
     platform: macOS
     sources:
-      - Sources
+      - path: Sources
+        excludes:
+          - iOS
     info:
       path: Info.plist
       properties:
@@ -23,3 +26,28 @@ targets:
         SWIFT_VERSION: "5.9"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: YES
+  DshStudioIOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/Model
+      - Sources/iOS
+    info:
+      path: Info-iOS.plist
+      properties:
+        CFBundleDisplayName: DSH Studio
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
+        NSPhotoLibraryUsageDescription: Attach a picture to a task.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kasparov.dshstudio.phone
+        SWIFT_VERSION: "5.9"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
