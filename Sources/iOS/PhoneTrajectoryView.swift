@@ -186,16 +186,14 @@ struct PhoneTrajectoryRow: View {
             PhoneThinkingBlock(text: text)
         case .context(_, let summary):
             PhoneNoteRow(icon: "arrow.triangle.2.circlepath", text: summary)
-        case .tool(_, _, let title, let detail, let status):
-            PhoneNoteRow(icon: icon(status), text: title.isEmpty ? detail : title)
-        }
-    }
-
-    private func icon(_ status: ToolStatus) -> String {
-        switch status {
-        case .running: return "circle.dashed"
-        case .ok: return "checkmark.circle"
-        case .error: return "exclamationmark.circle"
+        case .tool(let id, let name, let title, let detail, let status):
+            PhoneToolRow(
+                name: name,
+                title: title,
+                detail: detail,
+                status: status,
+                nested: id.contains(":code:")
+            )
         }
     }
 }

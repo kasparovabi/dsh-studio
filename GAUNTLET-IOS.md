@@ -33,7 +33,7 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [x] 4. Kompozer birebir: siyah kap, dalga düğmesi, alan, artı, altında çip şeridi
 - [x] 5. Üst bar birebir: iki yuvarlak düğme, orta kapsül, model adı ve dalga
 - [x] 6. Canlı akış: assistant/chunk, üç noktalı üretiliyor satırı, dalga animasyonu
-- [ ] 7. Araç çağrısı satırları: rozet, başlık, durum, katlanır çıktı
+- [x] 7. Araç çağrısı satırları: rozet, başlık, durum, katlanır çıktı
 - [ ] 8. Onay istemleri ve seçenekli sorular, siyah aksiyon kapsülleriyle
 - [ ] 9. Görsel ek: fotoğraf seçici, kompozer ataşı, mesaj içi görsel, medya kartı
 - [ ] 10. Kuyruk ve steer çipleri, iptal düğmesi, hata şeridi
