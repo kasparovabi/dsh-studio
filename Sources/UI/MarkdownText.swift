@@ -120,11 +120,20 @@ struct AssistantMarkdown: View {
             return index
         }
 
+        // A single Text taller than the window server's texture limit stops
+        // drawing altogether, and an agent that answers with hundreds of
+        // unbroken lines reaches that height. Cut long runs into several
+        // paragraphs, which reads the same and keeps every layer in range.
         func flushParagraph() {
-            let body = paragraph.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            let lines = paragraph
             paragraph = []
-            guard !body.isEmpty else { return }
-            result.append(.paragraph(id: nextId(), text: body))
+            for chunk in stride(from: 0, to: lines.count, by: 150) {
+                let slice = lines[chunk..<min(chunk + 150, lines.count)]
+                let body = slice.joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !body.isEmpty else { continue }
+                result.append(.paragraph(id: nextId(), text: body))
+            }
         }
 
         let lines = text.components(separatedBy: "\n")

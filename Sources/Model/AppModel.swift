@@ -220,6 +220,7 @@ final class AppModel: ObservableObject {
     var question: QuestionRequest? { questions.first { $0.sessionId == selected } }
     @Published var queueItems: [QueueItem] = []
     @Published var composer = ""
+    @Published var scrollPin = 0
     let streamState = StreamState()
     @Published var lastError: String?
     @Published var wsConnected = false
@@ -720,6 +721,7 @@ final class AppModel: ObservableObject {
         composer = ""
         pendingImages = []
         lastError = nil
+        scrollPin += 1
         var content: [[String: Any]] = images.map {
             ["type": "image", "data": $0.data.base64EncodedString(), "mediaType": $0.mediaType, "name": $0.name]
         }

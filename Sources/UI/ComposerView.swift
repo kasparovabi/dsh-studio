@@ -96,7 +96,7 @@ struct ComposerView: View {
                 }
                 .padding(.top, 10)
             }
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .bottom, spacing: 10) {
                 Button {
                     app.attachImages()
                 } label: {
@@ -119,11 +119,18 @@ struct ComposerView: View {
                     .buttonStyle(.plain)
                     .help("Set a goal for this session")
                 }
+                // A vertical field only reports one line of ideal height to a
+                // row that also holds fixed size buttons, so the rest of the
+                // text ends up clipped. fixedSize makes the row take the
+                // height the text actually needs, up to the line limit.
                 TextField("Write a task…", text: $app.composer, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.inkPrimary)
-                    .lineLimit(1...6)
+                    .lineLimit(1...12)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
                     .focused($focused)
                     .onSubmit { app.send() }
                 if app.running {
@@ -165,7 +172,7 @@ struct ComposerView: View {
                 .keyboardShortcut(.return, modifiers: .command)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
         }
         .card(radius: 18)
         .onAppear { focused = true }

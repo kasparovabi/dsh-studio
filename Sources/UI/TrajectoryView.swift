@@ -2,67 +2,148 @@ import SwiftUI
 
 struct TrajectoryView: View {
     @EnvironmentObject var app: AppModel
+    @State private var pinnedToBottom = true
+    @State private var viewportFrame: CGRect = .zero
+    @State private var wheelMonitor: Any?
+    @State private var bottomGap = GapBox()
+
+    final class GapBox {
+        var value: CGFloat = 0
+    }
 
     static let bottomAnchor = "trajectory-bottom"
     static let fadeBand: CGFloat = 46
 
+    // How far the content can sit past the viewport before the transcript is
+    // treated as parked rather than following.
+    private static let pinThreshold: CGFloat = 60
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if app.items.isEmpty {
-                        emptyState
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if app.items.isEmpty {
+                            emptyState
+                        }
+                        ForEach(app.items) { item in
+                            TrajectoryRow(item: item)
+                                .id(item.id)
+                        }
+                        StreamingRows(stream: app.streamState, proxy: proxy, pinned: $pinnedToBottom)
+                        // The card fades its bottom edge, so the anchor reserves
+                        // that band. Without it a scroll that lands perfectly
+                        // still leaves the newest line dissolving into the
+                        // gradient.
+                        Color.clear
+                            .frame(height: Self.fadeBand)
+                            .id(Self.bottomAnchor)
                     }
-                    ForEach(app.items) { item in
-                        TrajectoryRow(item: item)
-                            .id(item.id)
-                    }
-                    StreamingRows(stream: app.streamState, proxy: proxy)
-                    // The card fades its bottom edge, so the anchor reserves
-                    // that band. Without it a scroll that lands perfectly still
-                    // leaves the newest line dissolving into the gradient.
-                    Color.clear
-                        .frame(height: Self.fadeBand)
-                        .id(Self.bottomAnchor)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        GeometryReader { content in
+                            // The gap lands in a plain box rather than in
+                            // state. Republishing it on every streamed delta
+                            // re-entered layout often enough that the whole
+                            // pane stopped drawing.
+                            Color.clear.onChange(
+                                of: content.frame(in: .named("trajectory")).maxY - viewport.size.height
+                            ) { _, gap in
+                                bottomGap.value = gap
+                            }
+                        }
+                    )
                 }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.95),
-                        .init(color: .black.opacity(0), location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                .coordinateSpace(name: "trajectory")
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.95),
+                            .init(color: .black.opacity(0), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            )
-            .onChange(of: app.items.count) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                .onChange(of: app.items.count) {
+                    guard pinnedToBottom else { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    }
                 }
-                DispatchQueue.main.async {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                .onChange(of: app.selected) {
+                    jumpToBottom(proxy)
                 }
-            }
-            .onChange(of: app.selected) {
-                jumpToBottom(proxy)
-            }
-            .onAppear {
-                jumpToBottom(proxy)
+                // Sending is a deliberate move to the end of the conversation,
+                // so it takes the reader back down even while parked.
+                .onChange(of: app.scrollPin) {
+                    jumpToBottom(proxy)
+                }
+                .onChange(of: viewport.size) {
+                    viewportFrame = viewport.frame(in: .global)
+                }
+                .onAppear {
+                    viewportFrame = viewport.frame(in: .global)
+                    jumpToBottom(proxy)
+                    installWheelMonitor()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .card(radius: 18)
     }
 
+    // Measuring the gap alone is not enough while text streams in. A delta
+    // lands every few frames and the scroll it triggers runs before the new
+    // geometry has propagated, so the reader gets dragged back down. Watching
+    // the wheel unparks the transcript in the same event the reader scrolls.
+    // The monitor is never torn down: SwiftUI can call onAppear for the
+    // replacement view before onDisappear for the old one, and removing it
+    // there would leave the transcript deaf for the rest of the session.
+    private func installWheelMonitor() {
+        guard wheelMonitor == nil else { return }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            noteWheel(event)
+            return event
+        }
+    }
+
+    private func noteWheel(_ event: NSEvent) {
+        guard event.scrollingDeltaY != 0, viewportFrame != .zero else { return }
+        guard let content = event.window?.contentView else { return }
+        let point = CGPoint(
+            x: event.locationInWindow.x,
+            y: content.bounds.height - event.locationInWindow.y
+        )
+        guard viewportFrame.contains(point) else { return }
+        if event.scrollingDeltaY > 0 {
+            pinnedToBottom = false
+            return
+        }
+        // Only a scroll back down resumes the follow. Text piling up until it
+        // reaches whoever scrolled away is not them coming back, so growth
+        // alone must never re-pin. The gap is read once the scroll has landed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if bottomGap.value < Self.pinThreshold {
+                pinnedToBottom = true
+            }
+        }
+    }
+
     // A freshly loaded transcript lays out over several passes inside the lazy
-    // stack, so one scroll lands halfway up. Repeat until the layout settles.
+    // stack, so one scroll lands halfway up. Repeat until the layout settles,
+    // re-pinning each time so the jump between two transcripts of different
+    // length does not read as the reader scrolling backwards.
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
+        pinnedToBottom = true
         for delay in [0.0, 0.05, 0.2, 0.5] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                pinnedToBottom = true
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             }
         }
@@ -71,6 +152,7 @@ struct TrajectoryView: View {
     struct StreamingRows: View {
         @ObservedObject var stream: StreamState
         let proxy: ScrollViewProxy
+        @Binding var pinned: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
@@ -120,6 +202,7 @@ struct TrajectoryView: View {
         }
 
         private func follow() {
+            guard pinned else { return }
             proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
             DispatchQueue.main.async {
                 proxy.scrollTo(TrajectoryView.bottomAnchor, anchor: .bottom)
