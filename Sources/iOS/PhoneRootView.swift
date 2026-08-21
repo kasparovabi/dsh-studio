@@ -10,9 +10,7 @@ struct PhoneRootView: View {
             Color.phoneGround.ignoresSafeArea()
             VStack(spacing: 0) {
                 PhoneTopBar(sessionsOpen: $sessionsOpen, newOpen: $newOpen)
-                Spacer()
                 center
-                Spacer()
                 PhoneComposer()
             }
         }
@@ -33,20 +31,19 @@ struct PhoneRootView: View {
     private var center: some View {
         switch app.serverState {
         case .ready:
-            Text(app.sessions.isEmpty ? "No sessions yet" : (currentTitle ?? "Pick a session"))
-                .font(.system(size: 15))
-                .foregroundStyle(Color.phoneInkSoft)
+            PhoneTrajectoryView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed:
+            Spacer()
             PhoneConnectView().environmentObject(app)
+            Spacer()
         default:
+            Spacer()
             Text(app.serverStatusText)
                 .font(.system(size: 15))
                 .foregroundStyle(Color.phoneInkSoft)
+            Spacer()
         }
-    }
-
-    private var currentTitle: String? {
-        app.sessions.first { $0.id == app.selected }?.title
     }
 }
 

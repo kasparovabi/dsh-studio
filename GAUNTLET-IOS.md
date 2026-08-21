@@ -28,7 +28,7 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [x] 1. iOS hedefi projeye eklendi, model katmanı platformdan ayrıldı
       (NSImage yerine paylaşılan görsel tipi), simülatörde derleniyor ve açılıyor
 - [x] 2. Sunucuya bağlanma, oturum listesi sayfası, oturum seçme, geçmiş yükleme
-- [ ] 3. Transkript iskeleti: tarih ayracı, kullanıcı balonu, asistan metni,
+- [x] 3. Transkript iskeleti: tarih ayracı, kullanıcı balonu, asistan metni,
       boş durum, ölçüler DESIGN-IOS.md'deki gibi
 - [ ] 4. Kompozer birebir: siyah kap, dalga düğmesi, alan, artı, altında çip şeridi
 - [ ] 5. Üst bar birebir: iki yuvarlak düğme, orta kapsül, model adı ve dalga
@@ -42,6 +42,11 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [ ] 13. Final regresyon, simülatör görüntüleri, teslim özeti
 
 ## Notlar
+
+- Bazı oturumların günlüğü bozuk, `session.history` "corrupt session log" hatası
+  veriyor. Mac diskten kurtarıyor, telefonun böyle bir yolu yok, o yüzden 10.
+  maddedeki hata şeridi bu durumu göstermeli. Sağlam deneme oturumu
+  4613a04d-37fc-4bf9-a752-1ee1b10866db.
 
 - Model katmanı Mac ile ortak. Sources/Model altında AppKit'e değen tek yer
   görsel tipleri ve dosya seçici, onlar platform ayrımıyla bölünecek.
