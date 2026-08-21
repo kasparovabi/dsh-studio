@@ -25,6 +25,7 @@ extension Color {
     static let phoneSlate = Color(light: 0x111113, dark: 0x1C1C1F)
     static let phoneGreen = Color(red: 0.07, green: 0.23, blue: 0.18)
     static let phoneRed = Color(red: 0.78, green: 0.16, blue: 0.16)
+    static let phoneAmber = Color(red: 0.85, green: 0.55, blue: 0.10)
     static let phoneBlue = Color(red: 0.18, green: 0.42, blue: 1.0)
 
     init(light: UInt32, dark: UInt32) {

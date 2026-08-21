@@ -10,6 +10,7 @@ struct PhoneRootView: View {
             Color.phoneGround.ignoresSafeArea()
             VStack(spacing: 0) {
                 PhoneTopBar(sessionsOpen: $sessionsOpen, newOpen: $newOpen)
+                PhoneMeter()
                 center
             }
             // The bar and the composer float over the transcript the way they
