@@ -30,7 +30,7 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [x] 2. Sunucuya bağlanma, oturum listesi sayfası, oturum seçme, geçmiş yükleme
 - [x] 3. Transkript iskeleti: tarih ayracı, kullanıcı balonu, asistan metni,
       boş durum, ölçüler DESIGN-IOS.md'deki gibi
-- [ ] 4. Kompozer birebir: siyah kap, dalga düğmesi, alan, artı, altında çip şeridi
+- [x] 4. Kompozer birebir: siyah kap, dalga düğmesi, alan, artı, altında çip şeridi
 - [ ] 5. Üst bar birebir: iki yuvarlak düğme, orta kapsül, model adı ve dalga
 - [ ] 6. Canlı akış: assistant/chunk, üç noktalı üretiliyor satırı, dalga animasyonu
 - [ ] 7. Araç çağrısı satırları: rozet, başlık, durum, katlanır çıktı
@@ -43,10 +43,13 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 
 ## Notlar
 
-- Bazı oturumların günlüğü bozuk, `session.history` "corrupt session log" hatası
-  veriyor. Mac diskten kurtarıyor, telefonun böyle bir yolu yok, o yüzden 10.
-  maddedeki hata şeridi bu durumu göstermeli. Sağlam deneme oturumu
-  4613a04d-37fc-4bf9-a752-1ee1b10866db.
+- Kullanıcının eski oturumlarının çoğunda günlük bozuk, `session.history` ve
+  `session.models` "corrupt session log: seq gap" hatası veriyor. Mac diskten
+  kurtarıyor, telefonun böyle bir yolu yok, o yüzden 10. maddedeki hata şeridi
+  bu durumu göstermeli.
+- Deneme için kullanıcının gerçek oturumlarını seçme. Taze deneme oturumu
+  session-32196b82-8b4d-4fc7-99be-65efbdbc423f, dizini /tmp/dsh-phone-lab.
+  Liste en yeniyi başa aldığı için uygulama açılışta onu seçiyor.
 
 - Model katmanı Mac ile ortak. Sources/Model altında AppKit'e değen tek yer
   görsel tipleri ve dosya seçici, onlar platform ayrımıyla bölünecek.

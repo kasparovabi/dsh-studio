@@ -136,18 +136,29 @@ struct Waveform: View {
 
 struct PhoneComposer: View {
     @EnvironmentObject var app: AppModel
+    @FocusState private var writing: Bool
+    @State private var steering = true
+    @State private var presetOpen = false
+    @State private var modelOpen = false
+
+    private var hasText: Bool {
+        !app.composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(.white)
-                    .frame(width: Phone.control, height: Phone.control)
-                    .overlay(
-                        Image(systemName: "waveform")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.black)
-                    )
+            HStack(alignment: .bottom, spacing: 10) {
+                Button { app.send(mode: steering ? "steer" : "queue") } label: {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: Phone.control, height: Phone.control)
+                        .overlay(
+                            Image(systemName: hasText ? "arrow.up" : "waveform")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.black)
+                        )
+                }
+                .disabled(!hasText && app.pendingImages.isEmpty)
                 TextField("", text: $app.composer, axis: .vertical)
                     .placeholder(when: app.composer.isEmpty) {
                         Text("Write a task")
@@ -156,21 +167,30 @@ struct PhoneComposer: View {
                     .lineLimit(1...6)
                     .font(.system(size: 15))
                     .foregroundStyle(.white)
-                Circle()
-                    .fill(.white.opacity(0.12))
-                    .frame(width: Phone.control, height: Phone.control)
-                    .overlay(
-                        Image(systemName: app.running ? "stop.fill" : "plus")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.white)
-                    )
+                    .focused($writing)
+                    .padding(.vertical, 9)
+                Button { app.running ? app.cancel() : (writing = true) } label: {
+                    Circle()
+                        .fill(.white.opacity(0.12))
+                        .frame(width: Phone.control, height: Phone.control)
+                        .overlay(
+                            Image(systemName: app.running ? "stop.fill" : "plus")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.white)
+                        )
+                }
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    Chip(label: "Steer", active: true)
-                    Chip(label: "Queue", active: false)
-                    Chip(label: "Preset", active: false)
+                    Chip(label: steering ? "Steer" : "Queue", active: steering) {
+                        steering.toggle()
+                    }
+                    Chip(label: presetLabel, active: app.agentPreset != nil) {
+                        presetOpen = true
+                    }
+                    Chip(label: modelLabel, active: false) { modelOpen = true }
                 }
+                .padding(.horizontal, 2)
             }
         }
         .padding(8)
@@ -180,24 +200,136 @@ struct PhoneComposer: View {
         )
         .padding(.horizontal, Phone.margin)
         .padding(.bottom, 6)
+        .sheet(isPresented: $presetOpen) {
+            PhoneChoiceSheet(
+                title: "Agent preset",
+                rows: app.presetOptions.map {
+                    PhoneChoice(id: $0.id, label: $0.name, detail: $0.description, on: $0.id == app.agentPreset)
+                }
+            ) { id in
+                if let option = app.presetOptions.first(where: { $0.id == id }) { app.selectPreset(option) }
+                presetOpen = false
+            }
+            .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $modelOpen) {
+            PhoneChoiceSheet(
+                title: "Model",
+                rows: app.modelOptions.map {
+                    PhoneChoice(
+                        id: $0.id,
+                        label: $0.modelName,
+                        detail: $0.providerName,
+                        on: $0.provider == app.provider && $0.model == app.model
+                    )
+                }
+            ) { id in
+                if let option = app.modelOptions.first(where: { $0.id == id }) { app.selectModel(option) }
+                modelOpen = false
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var presetLabel: String {
+        guard let id = app.agentPreset else { return "Preset" }
+        return app.presetOptions.first { $0.id == id }?.name ?? id
+    }
+
+    private var modelLabel: String {
+        app.model.isEmpty ? "Model" : app.model
     }
 }
 
 struct Chip: View {
     let label: String
     let active: Bool
+    var action: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(label)
-                .font(.system(size: 13, weight: .medium))
-            Image(systemName: active ? "xmark" : "plus")
-                .font(.system(size: 10, weight: .semibold))
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: active ? "xmark" : "plus")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(active ? .white : Color.phoneInk)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(active ? Color.phoneBlue : Color.phoneControl))
         }
-        .foregroundStyle(active ? .white : Color.phoneInk)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Capsule().fill(active ? Color.phoneBlue : Color.phoneControl))
+        .buttonStyle(.plain)
+    }
+}
+
+struct PhoneChoice: Identifiable {
+    let id: String
+    let label: String
+    let detail: String?
+    let on: Bool
+}
+
+struct PhoneChoiceSheet: View {
+    let title: String
+    let rows: [PhoneChoice]
+    let pick: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.phoneGround.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.phoneInk)
+                    Spacer()
+                    Button { dismiss() } label: { CircleControl(system: "xmark") }
+                }
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(rows) { row in
+                            Button { pick(row.id) } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(row.label)
+                                            .font(.system(size: 15))
+                                            .foregroundStyle(Color.phoneInk)
+                                        if let detail = row.detail, !detail.isEmpty {
+                                            Text(detail)
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(Color.phoneInkSoft)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                    if row.on {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(Color.phoneInk)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            if row.id != rows.last?.id {
+                                Divider().overlay(Color.phoneWash).padding(.leading, 16)
+                            }
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: Phone.radiusCard, style: .continuous)
+                            .fill(Color.phoneCard)
+                    )
+                }
+            }
+            .padding(.horizontal, Phone.margin)
+            .padding(.vertical, 18)
+        }
     }
 }
 
