@@ -23,6 +23,37 @@ struct PhoneActionCapsule: View {
     }
 }
 
+struct PhoneErrorStrip: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.phoneRed)
+            Text(message.sanitizedForDisplay)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.phoneInk)
+                .lineLimit(3)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.phoneInkSoft)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: Phone.radiusBubble, style: .continuous)
+                .fill(Color.phoneRed.opacity(0.10))
+        )
+        .padding(.horizontal, Phone.margin)
+        .padding(.bottom, 8)
+    }
+}
+
 struct PhoneApprovalCard: View {
     @EnvironmentObject var app: AppModel
     let approval: ApprovalRequest

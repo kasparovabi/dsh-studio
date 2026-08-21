@@ -17,6 +17,9 @@ struct PhoneRootView: View {
                 if let question = app.question {
                     PhoneQuestionCard(request: question)
                 }
+                if let error = app.lastError {
+                    PhoneErrorStrip(message: error) { app.lastError = nil }
+                }
                 PhoneComposer()
             }
         }
@@ -213,6 +216,11 @@ struct PhoneComposer: View {
                         presetOpen = true
                     }
                     Chip(label: modelLabel, active: false) { modelOpen = true }
+                    ForEach(app.queueItems) { item in
+                        Chip(label: queueLabel(item), active: false, glyph: "xmark") {
+                            app.removeQueued(item)
+                        }
+                    }
                 }
                 .padding(.horizontal, 2)
             }
@@ -263,11 +271,17 @@ struct PhoneComposer: View {
     private var modelLabel: String {
         app.model.isEmpty ? "Model" : app.model
     }
+
+    private func queueLabel(_ item: QueueItem) -> String {
+        let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.count > 18 ? String(text.prefix(18)) + "…" : text
+    }
 }
 
 struct Chip: View {
     let label: String
     let active: Bool
+    var glyph: String?
     var action: () -> Void = {}
 
     var body: some View {
@@ -276,7 +290,7 @@ struct Chip: View {
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
-                Image(systemName: active ? "xmark" : "plus")
+                Image(systemName: glyph ?? (active ? "xmark" : "plus"))
                     .font(.system(size: 10, weight: .semibold))
             }
             .foregroundStyle(active ? .white : Color.phoneInk)
