@@ -19,7 +19,8 @@ struct PhoneTrajectoryView: View {
         GeometryReader { viewport in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        LazyVStack(alignment: .leading, spacing: 16) {
                         if let stamp = dateStamp {
                             Text(stamp)
                                 .font(.system(size: 11, weight: .medium))
@@ -34,14 +35,15 @@ struct PhoneTrajectoryView: View {
                         PhoneStreamingRows(stream: app.streamState, running: app.running) {
                             follow(proxy)
                         }
+                        }
+                        // The tail sits outside the lazy stack on purpose. Inside
+                        // it, scrolling away tears it down and the distance to
+                        // the bottom freezes at whatever it last read.
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
                             .background(
                                 GeometryReader { tail in
-                                    // The distance to the bottom lives in a plain
-                                    // box. Publishing it on every streamed delta
-                                    // would re-enter layout while the text grows.
                                     Color.clear.onChange(
                                         of: tail.frame(in: .named(Self.space)).maxY
                                     ) { _, maxY in

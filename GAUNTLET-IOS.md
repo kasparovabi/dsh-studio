@@ -20,8 +20,9 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - Uygulamayı o sunucuya bağlamak için `DSH_PORT=3123 bash scripts/ios-run.sh`.
 - Dokunma ve ekran görüntüsü: `bash scripts/sim-tap.sh <x> <y> <dosya>`, koordinat
   cihaz puntosu. Simulator.app açık olmalı, `simctl boot` tek başına pencere açmaz.
-- Tur boyunca 3123 sunucusu ayakta kalıyor. 13. madde bitince kapat ve deneme
-  oturumlarını sil.
+- Sürükleme denemesi: `bash scripts/sim-drag.sh <x1> <y1> <x2> <y2> <dosya>`.
+- Tur bitti. 3123 sunucusu kapatıldı, deneme oturumu ve /tmp/dsh-phone-lab silindi,
+  kullanıcının 3080 sunucusu yerinde.
 
 ## Durum listesi
 
@@ -39,7 +40,7 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [x] 10. Kuyruk ve steer çipleri, iptal düğmesi, hata şeridi
 - [x] 11. Görsel parite turu: referansla yan yana kıyas, yarıçap, boşluk, renk düzeltmesi
 - [x] 12. Bağlam basıncı ve jeton göstergesi
-- [ ] 13. Final regresyon, simülatör görüntüleri, teslim özeti
+- [x] 13. Final regresyon, simülatör görüntüleri, teslim özeti
 
 ## Notlar
 
