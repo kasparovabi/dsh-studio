@@ -709,7 +709,11 @@ final class AppModel: ObservableObject {
         recoveredHistory = true
     }
 
-    func send(mode: String = "queue") {
+    // Typing while the agent works means "take this into account now", the way
+    // a terminal harness treats it. Queueing is still there, but it is the
+    // deliberate choice rather than what a plain Return does.
+    func send(mode requested: String? = nil) {
+        let mode = requested ?? (running ? "steer" : "queue")
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = pendingImages
         guard !text.isEmpty || !images.isEmpty, let sessionId = selected else { return }

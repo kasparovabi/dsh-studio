@@ -138,9 +138,9 @@ struct ComposerView: View {
                     }
                     .buttonStyle(.plain)
                     Button {
-                        app.send(mode: "steer")
+                        app.send(mode: "queue")
                     } label: {
-                        Image(systemName: "bolt.fill")
+                        Image(systemName: "clock")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 32, height: 32)
@@ -148,7 +148,7 @@ struct ComposerView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!sendEnabled)
-                    .help("Steer: interrupt the current turn with this message")
+                    .help("Queue this message for after the current turn")
                 }
                 Button {
                     app.send()
@@ -160,6 +160,7 @@ struct ComposerView: View {
                         .background(Circle().fill(sendEnabled ? Color.accentPurple : Color.inkSecondary.opacity(0.4)))
                 }
                 .buttonStyle(.plain)
+                .help(app.running ? "Send into the running turn" : "Send")
                 .disabled(!sendEnabled)
                 .keyboardShortcut(.return, modifiers: .command)
             }
