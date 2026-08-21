@@ -164,6 +164,9 @@ struct PhoneComposer: View {
 
     var body: some View {
         VStack(spacing: 10) {
+            if !app.pendingImages.isEmpty {
+                PhoneAttachmentStrip()
+            }
             HStack(alignment: .bottom, spacing: 10) {
                 Button { app.send(mode: steering ? "steer" : "queue") } label: {
                     Circle()
@@ -186,15 +189,19 @@ struct PhoneComposer: View {
                     .foregroundStyle(.white)
                     .focused($writing)
                     .padding(.vertical, 9)
-                Button { app.running ? app.cancel() : (writing = true) } label: {
-                    Circle()
-                        .fill(.white.opacity(0.12))
-                        .frame(width: Phone.control, height: Phone.control)
-                        .overlay(
-                            Image(systemName: app.running ? "stop.fill" : "plus")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(.white)
-                        )
+                if app.running {
+                    Button { app.cancel() } label: {
+                        Circle()
+                            .fill(.white.opacity(0.12))
+                            .frame(width: Phone.control, height: Phone.control)
+                            .overlay(
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.white)
+                            )
+                    }
+                } else {
+                    PhonePhotoButton()
                 }
             }
             ScrollView(.horizontal, showsIndicators: false) {

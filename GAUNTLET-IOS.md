@@ -35,7 +35,7 @@ Derleme iki kez üst üste kırılırsa dur ve kullanıcıya bildir.
 - [x] 6. Canlı akış: assistant/chunk, üç noktalı üretiliyor satırı, dalga animasyonu
 - [x] 7. Araç çağrısı satırları: rozet, başlık, durum, katlanır çıktı
 - [x] 8. Onay istemleri ve seçenekli sorular, siyah aksiyon kapsülleriyle
-- [ ] 9. Görsel ek: fotoğraf seçici, kompozer ataşı, mesaj içi görsel, medya kartı
+- [x] 9. Görsel ek: fotoğraf seçici, kompozer ataşı, mesaj içi görsel, medya kartı
 - [ ] 10. Kuyruk ve steer çipleri, iptal düğmesi, hata şeridi
 - [ ] 11. Görsel parite turu: referansla yan yana kıyas, yarıçap, boşluk, renk düzeltmesi
 - [ ] 12. Bağlam basıncı ve jeton göstergesi

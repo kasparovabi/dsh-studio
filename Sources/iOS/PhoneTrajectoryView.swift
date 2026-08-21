@@ -202,6 +202,7 @@ struct PhoneUserBubble: View {
     @EnvironmentObject var app: AppModel
     let text: String
     let images: [String]
+    @State private var opened: OpenedImage?
 
     var body: some View {
         HStack {
@@ -216,6 +217,7 @@ struct PhoneUserBubble: View {
                             .scaledToFill()
                             .frame(width: 40, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .onTapGesture { opened = OpenedImage(id: attachmentId, image: image) }
                     }
                 }
                 Text(text.sanitizedForDisplay)
@@ -231,6 +233,9 @@ struct PhoneUserBubble: View {
             )
         }
         .onAppear { images.forEach(app.loadAttachment) }
+        .fullScreenCover(item: $opened) { opened in
+            PhoneMediaCard(image: opened.image)
+        }
     }
 }
 
