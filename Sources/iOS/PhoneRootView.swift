@@ -6,11 +6,16 @@ struct PhoneRootView: View {
     @State private var newOpen = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             Color.phoneGround.ignoresSafeArea()
             VStack(spacing: 0) {
                 PhoneTopBar(sessionsOpen: $sessionsOpen, newOpen: $newOpen)
                 center
+            }
+            // The bar and the composer float over the transcript the way they
+            // do in the reference, so the text runs the full height and fades
+            // out under them instead of stopping at a hard edge.
+            VStack(spacing: 0) {
                 if let approval = app.approvals.first(where: { $0.sessionId == app.selected }) {
                     PhoneApprovalCard(approval: approval)
                 }
@@ -212,10 +217,10 @@ struct PhoneComposer: View {
                     Chip(label: steering ? "Steer" : "Queue", active: steering) {
                         steering.toggle()
                     }
-                    Chip(label: presetLabel, active: app.agentPreset != nil) {
+                    Chip(label: presetLabel, active: false, glyph: "chevron.down") {
                         presetOpen = true
                     }
-                    Chip(label: modelLabel, active: false) { modelOpen = true }
+                    Chip(label: modelLabel, active: false, glyph: "chevron.down") { modelOpen = true }
                     ForEach(app.queueItems) { item in
                         Chip(label: queueLabel(item), active: false, glyph: "xmark") {
                             app.removeQueued(item)

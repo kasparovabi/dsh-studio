@@ -13,6 +13,7 @@ struct PhoneTrajectoryView: View {
     static let bottomAnchor = "phone-trajectory-bottom"
     private static let space = "phone-trajectory"
     private static let pinThreshold: CGFloat = 60
+    private static let composerBand: CGFloat = 132
 
     var body: some View {
         GeometryReader { viewport in
@@ -50,9 +51,22 @@ struct PhoneTrajectoryView: View {
                             )
                     }
                     .padding(.horizontal, Phone.margin)
-                    .padding(.bottom, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, Self.composerBand)
                 }
                 .coordinateSpace(name: Self.space)
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0), location: 0),
+                            .init(color: .black, location: 0.03),
+                            .init(color: .black, location: 0.94),
+                            .init(color: .black.opacity(0), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
                     DragGesture()
@@ -204,6 +218,12 @@ struct PhoneUserBubble: View {
     let images: [String]
     @State private var opened: OpenedImage?
 
+    private var bare: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !images.isEmpty
+    }
+
+    private var thumbnail: CGFloat { bare ? 132 : 40 }
+
     var body: some View {
         HStack {
             // The bubble stops at 78 percent of the screen, and the margins are
@@ -215,21 +235,28 @@ struct PhoneUserBubble: View {
                         Image(platform: image)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: 40, height: 40)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .frame(width: thumbnail, height: thumbnail)
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: bare ? Phone.radiusBubble : 10,
+                                    style: .continuous
+                                )
+                            )
                             .onTapGesture { opened = OpenedImage(id: attachmentId, image: image) }
                     }
                 }
-                Text(text.sanitizedForDisplay)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white)
-                    .textSelection(.enabled)
+                if !bare {
+                    Text(text.sanitizedForDisplay)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .textSelection(.enabled)
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
+            .padding(.horizontal, bare ? 0 : 16)
+            .padding(.vertical, bare ? 0 : 11)
             .background(
                 RoundedRectangle(cornerRadius: Phone.radiusBubble, style: .continuous)
-                    .fill(Color.phoneSlate)
+                    .fill(bare ? Color.clear : Color.phoneSlate)
             )
         }
         .onAppear { images.forEach(app.loadAttachment) }

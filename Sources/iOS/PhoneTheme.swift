@@ -20,7 +20,9 @@ extension Color {
     static let phoneInk = Color(light: 0x111113, dark: 0xF5F5F7)
     static let phoneInkSoft = Color(light: 0x8A8A8E, dark: 0x8A8A8E)
     static let phoneStamp = Color(light: 0x9A96AE, dark: 0x76748A)
-    static let phoneSlate = Color(light: 0x111113, dark: 0x000000)
+    // In the dark theme the ground is already near black, so the composer and
+    // the user bubble step up rather than down. Pure black loses its edge.
+    static let phoneSlate = Color(light: 0x111113, dark: 0x1C1C1F)
     static let phoneGreen = Color(red: 0.07, green: 0.23, blue: 0.18)
     static let phoneRed = Color(red: 0.78, green: 0.16, blue: 0.16)
     static let phoneBlue = Color(red: 0.18, green: 0.42, blue: 1.0)
