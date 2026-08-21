@@ -51,6 +51,7 @@ struct PhoneTopBar: View {
     @EnvironmentObject var app: AppModel
     @Binding var sessionsOpen: Bool
     @Binding var newOpen: Bool
+    @State private var modelOpen = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -58,27 +59,30 @@ struct PhoneTopBar: View {
                 CircleControl(system: "line.3.horizontal")
             }
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color.white.opacity(0.16))
-                    .frame(width: 26, height: 26)
-                    .overlay(
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
-                    )
-                Waveform(active: app.running)
-                    .frame(width: 46, height: 16)
-                Text(app.model.isEmpty ? "dsh" : shortModel)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+            Button { modelOpen = true } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.white.opacity(0.16))
+                        .frame(width: 26, height: 26)
+                        .overlay(
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                        )
+                    Waveform(active: app.running)
+                        .frame(width: 46, height: 16)
+                    Text(app.model.isEmpty ? "dsh" : shortModel)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 8)
+                .frame(height: Phone.control)
+                .background(Capsule().fill(Color.phoneGreen))
             }
-            .padding(.horizontal, 8)
-            .frame(height: Phone.control)
-            .background(Capsule().fill(Color.phoneGreen))
+            .buttonStyle(.plain)
             Spacer(minLength: 0)
             Button { newOpen = true } label: {
                 CircleControl(system: "square.and.pencil")
@@ -86,6 +90,23 @@ struct PhoneTopBar: View {
         }
         .padding(.horizontal, Phone.margin)
         .padding(.top, 4)
+        .sheet(isPresented: $modelOpen) {
+            PhoneChoiceSheet(
+                title: "Model",
+                rows: app.modelOptions.map {
+                    PhoneChoice(
+                        id: $0.id,
+                        label: $0.modelName,
+                        detail: $0.providerName,
+                        on: $0.provider == app.provider && $0.model == app.model
+                    )
+                }
+            ) { id in
+                if let option = app.modelOptions.first(where: { $0.id == id }) { app.selectModel(option) }
+                modelOpen = false
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private var shortModel: String {
@@ -99,7 +120,7 @@ struct PhoneTopBar: View {
 // thing worth a live trace on a phone, which is whether the agent is working.
 struct Waveform: View {
     let active: Bool
-    @State private var phase: Double = 0
+    @State private var lifted = false
 
     private let bars: [CGFloat] = [0.35, 0.7, 1.0, 0.55, 0.85, 0.4, 0.75, 0.5, 0.9, 0.3]
 
@@ -107,30 +128,20 @@ struct Waveform: View {
         HStack(spacing: 2) {
             ForEach(bars.indices, id: \.self) { index in
                 Capsule()
-                    .fill(Color.white.opacity(active ? 0.9 : 0.45))
-                    .frame(width: 2, height: height(index))
+                    .fill(Color.white.opacity(active ? 0.9 : 0.4))
+                    .frame(width: 2, height: 16 * bars[index] * (active && lifted ? 1 : 0.45))
+                    .animation(beat(index), value: lifted)
+                    .animation(.easeInOut(duration: 0.3), value: active)
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: phase)
-        .onAppear { pulse() }
-        .onChange(of: active) { pulse() }
+        .onAppear { lifted = true }
     }
 
-    private func height(_ index: Int) -> CGFloat {
-        let base = bars[index]
-        guard active else { return 16 * base * 0.5 }
-        let wave = sin(phase + Double(index) * 0.7)
-        return 16 * base * (0.55 + 0.45 * CGFloat(abs(wave)))
-    }
-
-    private func pulse() {
-        guard active else { return }
-        Task { @MainActor in
-            while active {
-                phase += 0.9
-                try? await Task.sleep(nanoseconds: 320_000_000)
-            }
-        }
+    private func beat(_ index: Int) -> Animation? {
+        guard active else { return .easeInOut(duration: 0.25) }
+        return .easeInOut(duration: 0.42)
+            .repeatForever(autoreverses: true)
+            .delay(Double(index) * 0.06)
     }
 }
 
