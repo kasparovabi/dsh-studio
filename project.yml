@@ -12,10 +12,12 @@ targets:
       - path: Sources
         excludes:
           - iOS
+      - path: Resources/AppIcon.icns
     info:
       path: Info.plist
       properties:
         CFBundleDisplayName: DSH Studio
+        CFBundleIconFile: AppIcon
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         LSApplicationCategoryType: public.app-category.developer-tools
@@ -39,9 +41,11 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # NSAllowsLocalNetworking makes iOS ignore NSAllowsArbitraryLoads, which
+        # blocks plain http to a tailnet 100.x address with NSURLError -1022.
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
           NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Reach the dsh server running on your Mac.
         NSPhotoLibraryUsageDescription: Attach a picture to a task.
         ITSAppUsesNonExemptEncryption: false
     settings:
@@ -52,7 +56,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "5"
       configs:
         Debug:
           CODE_SIGNING_REQUIRED: NO

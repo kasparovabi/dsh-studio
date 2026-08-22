@@ -1,6 +1,8 @@
 # Xcode / build
 build/
+build-ios/
 DerivedData/
+Resources/AppIcon.iconset/
 *.xcodeproj/
 *.xcworkspace/
 *.xcuserstate

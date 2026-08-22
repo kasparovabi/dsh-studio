@@ -12,8 +12,17 @@ function tailnetAddress() {
   throw new Error("tailscale address not found");
 }
 
+// A bind outside the tailnet range would put dsh on whatever LAN the machine
+// happens to be on, so refuse rather than guess.
+function requireTailnet(address) {
+  const parts = address.split(".").map(Number);
+  const inRange = parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+  if (!inRange) throw new Error(`refusing to bind ${address}, not a tailnet address`);
+  return address;
+}
+
 const LISTEN_PORT = Number(process.env.DSH_PROXY_PORT || 3080);
-const LISTEN_HOST = process.env.DSH_PROXY_BIND || tailnetAddress();
+const LISTEN_HOST = requireTailnet(process.env.DSH_PROXY_BIND || tailnetAddress());
 const TARGET_PORT = Number(process.env.DSH_PROXY_TARGET || 3080);
 const TARGET_HOST = "127.0.0.1";
 const TARGET_AUTHORITY = `${TARGET_HOST}:${TARGET_PORT}`;
@@ -28,7 +37,12 @@ function forwardHeaders(headers) {
   return copy;
 }
 
+function trace(kind, request) {
+  console.log(`${new Date().toISOString()} ${kind} ${request.socket.remoteAddress} ${request.method} ${request.url}`);
+}
+
 const server = http.createServer((request, response) => {
+  trace("http", request);
   const upstream = http.request(
     {
       host: TARGET_HOST,
@@ -50,6 +64,7 @@ const server = http.createServer((request, response) => {
 });
 
 server.on("upgrade", (request, socket, head) => {
+  trace("ws", request);
   const upstream = http.request({
     host: TARGET_HOST,
     port: TARGET_PORT,

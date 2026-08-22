@@ -214,6 +214,7 @@ final class AppModel: ObservableObject {
     @Published var provider = ""
     @Published var model = ""
     @Published var hostCwd = ""
+    @Published var probeFailure = ""
     @Published var reasoningEffort: String?
     @Published var modelOptions: [ModelOption] = []
     @Published var approvals: [ApprovalRequest] = []
@@ -342,13 +343,23 @@ final class AppModel: ObservableObject {
         }
         serverState = .failed("dsh did not come up within 30s. See \(server.logURL.path)")
         #else
-        serverState = .failed("No dsh server answered at \(host):\(port)")
+        serverState = .failed("No dsh server answered at \(host):\(port)\n\(probeFailure)")
         #endif
     }
 
     private func probe() async -> Bool {
-        guard let host = (try? await client.call("host.describe")) as? [String: Any] else { return false }
-        return host["version"] != nil || host["cwd"] != nil
+        do {
+            guard let host = try await client.call("host.describe") as? [String: Any] else {
+                probeFailure = "unexpected reply"
+                return false
+            }
+            probeFailure = ""
+            return host["version"] != nil || host["cwd"] != nil
+        } catch {
+            let ns = error as NSError
+            probeFailure = "\(ns.domain) \(ns.code) \(ns.localizedDescription)"
+            return false
+        }
     }
 
     private func becomeReady() async {
@@ -369,14 +380,25 @@ final class AppModel: ObservableObject {
         await loadPresets()
     }
 
+    // dsh ships its four built-in presets with Chinese copy. The rest of this app
+    // is English, so the shipped ones are relabelled here. Presets the user wrote
+    // keep whatever they named them.
+    private static let shippedPresetCopy: [String: (String, String)] = [
+        "standard": ("Standard", "Full coding agent with file editing, shell, file and web search, skills, plans, goals, subagents and workflows."),
+        "code": ("PTC", "Everything in Standard, with tools exposed through the Code Mode SDK so the model composes multi-step work as one TypeScript program."),
+        "minimal": ("Minimal", "A two-tool coding agent with nothing but a persistent bash and str_replace_editor."),
+        "cordis": ("Authoring", "For writing your own agent presets. Everything in Standard, plus runtime inspection, plugin experiments and authoring guidance."),
+    ]
+
     private func loadPresets() async {
         guard let value = (try? await client.call("agentPreset.list")) as? [String: Any] else { return }
         presetOptions = (value["presets"] as? [[String: Any]] ?? []).compactMap { p in
             guard let pid = p["id"] as? String, p["broken"] == nil else { return nil }
+            let shipped = (p["trust"] as? String) == "system" ? AppModel.shippedPresetCopy[pid] : nil
             return PresetOption(
                 id: pid,
-                name: p["name"] as? String ?? pid,
-                description: p["description"] as? String,
+                name: shipped?.0 ?? (p["name"] as? String ?? pid),
+                description: shipped?.1 ?? (p["description"] as? String),
                 isDefault: p["isDefault"] as? Bool ?? false
             )
         }
