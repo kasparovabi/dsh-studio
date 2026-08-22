@@ -26,9 +26,9 @@
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Reach the dsh server running on your Mac.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach a picture to a task.</string>
 	<key>UILaunchScreen</key>

@@ -39,10 +39,11 @@ def app_id():
     return items[0]["id"] if items else None
 
 
-def newest_build(app):
+def newest_build(app, want=None):
+    query = f"&filter[version]={want}" if want else ""
     _, data = call(
         "GET",
-        f"/v1/builds?filter[app]={app}&sort=-version&limit=1"
+        f"/v1/builds?filter[app]={app}&sort=-version&limit=1{query}"
         "&fields[builds]=version,processingState,expired",
     )
     items = data.get("data") or []
@@ -56,9 +57,10 @@ def main() -> int:  # noqa: C901
         return 1
     print("app", app)
 
+    want = sys.argv[1] if len(sys.argv) > 1 else None
     build = None
     for attempt in range(60):
-        build = newest_build(app)
+        build = newest_build(app, want)
         state = build["attributes"]["processingState"] if build else "no build yet"
         print(f"[{attempt}] {state}")
         if build and state == "VALID":
