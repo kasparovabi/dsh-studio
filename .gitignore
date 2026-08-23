@@ -1,6 +1,7 @@
 # Xcode / build
 build/
 build-ios/
+build-mac/
 DerivedData/
 Resources/AppIcon.iconset/
 *.xcodeproj/
@@ -17,5 +18,5 @@ DshStudio.xcodeproj/
 
 # Local / internal working docs (not for publication)
 *.log
-GAUNTLET.md
-DESIGN.md
+GAUNTLET*.md
+DESIGN*.md
