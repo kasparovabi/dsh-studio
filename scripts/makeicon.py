@@ -20,6 +20,8 @@ WIN_PNG = REPO.parent / "DshStudioWin/src/Assets/AppIcon.png"
 WIN_MARK = REPO.parent / "DshStudioWin/src/Assets/LogoMark.png"
 MARK_IMAGESET = REPO / "Sources/Assets.xcassets/LogoMark.imageset"
 MARK_BASE = 64
+README_LOGO = REPO / "docs/logo.png"
+README_LOGO_DARK = REPO / "docs/logo-dark.png"
 
 INK = "#111113"
 PAPER = "#FFFFFF"
@@ -89,6 +91,17 @@ def main() -> int:
         return master
 
     mac_master = plated("mac", MAC_PLATE_FRACTION, MAC_CORNER_FRACTION, GLYPH_FRACTION_MAC)
+
+    # Two README logos. The ink plate reads on a light page but vanishes into
+    # GitHub's dark ground, so the dark one drops the plate and ships the glyph
+    # alone; the README picks between them with a <picture> media query.
+    README_LOGO.parent.mkdir(parents=True, exist_ok=True)
+    run("magick", str(mac_master), "-trim", "+repage", "-resize", "256x256", str(README_LOGO))
+    # The notch inside the glyph is painted in ink over the white shape, so on a
+    # dark page it has to be knocked out rather than left as a dark-on-dark slab.
+    run("magick", str(trimmed), "-fuzz", "12%", "-transparent", INK,
+        "-resize", f"{int(256 * GLYPH_FRACTION_MAC)}x{int(256 * GLYPH_FRACTION_MAC)}",
+        "-background", "none", "-gravity", "center", "-extent", "256x256", str(README_LOGO_DARK))
 
     MAC_ICONSET.mkdir(parents=True, exist_ok=True)
     for size in (16, 32, 64, 128, 256, 512, 1024):
