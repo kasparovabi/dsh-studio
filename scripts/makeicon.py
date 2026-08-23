@@ -17,6 +17,9 @@ MAC_ICONSET = REPO / "Resources/AppIcon.iconset"
 MAC_ICNS = REPO / "Resources/AppIcon.icns"
 WIN_ICO = REPO.parent / "DshStudioWin/src/Assets/AppIcon.ico"
 WIN_PNG = REPO.parent / "DshStudioWin/src/Assets/AppIcon.png"
+WIN_MARK = REPO.parent / "DshStudioWin/src/Assets/LogoMark.png"
+MARK_IMAGESET = REPO / "Sources/Assets.xcassets/LogoMark.imageset"
+MARK_BASE = 64
 
 INK = "#111113"
 PAPER = "#FFFFFF"
@@ -108,9 +111,27 @@ def main() -> int:
     run("magick", *layers, str(WIN_ICO))
     run("magick", str(win_master), "-resize", "256x256", str(WIN_PNG))
 
+    # The in-app badge draws its own rounded corners, so its art is the full
+    # bleed square the iOS icon already is.
+    MARK_IMAGESET.mkdir(parents=True, exist_ok=True)
+    entries = []
+    for scale in (1, 2, 3):
+        name = f"LogoMark@{scale}x.png" if scale > 1 else "LogoMark.png"
+        run("magick", str(IOS_ICON), "-resize", f"{MARK_BASE * scale}x{MARK_BASE * scale}",
+            str(MARK_IMAGESET / name))
+        entries.append(f'{{"filename":"{name}","idiom":"universal","scale":"{scale}x"}}')
+    (MARK_IMAGESET / "Contents.json").write_text(
+        '{"images":[' + ",".join(entries) + '],"info":{"author":"xcode","version":1}}\n'
+    )
+    (MARK_IMAGESET.parent / "Contents.json").write_text(
+        '{"info":{"author":"xcode","version":1}}\n'
+    )
+    run("magick", str(IOS_ICON), "-resize", f"{MARK_BASE * 3}x{MARK_BASE * 3}", str(WIN_MARK))
+
     print(IOS_ICON)
     print(MAC_ICNS)
     print(WIN_ICO)
+    print(MARK_IMAGESET)
     return 0
 
 

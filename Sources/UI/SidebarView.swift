@@ -197,10 +197,10 @@ struct SidebarView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(LinearGradient(colors: [.accentPurple, Color(hex: 0xB07CFF)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            Image("LogoMark")
+                .resizable()
                 .frame(width: 34, height: 34)
-                .overlay(Text("dsh").font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text("DSH Studio")
                     .font(.system(size: 14, weight: .semibold))
