@@ -30,6 +30,7 @@ struct BucketHeader: View {
 
 struct SidebarView: View {
     @EnvironmentObject var app: AppModel
+    @State private var deleteTarget: SessionRow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -62,6 +63,8 @@ struct SidebarView: View {
                                 .contextMenu {
                                     Button("Rename…") { app.beginRename(session) }
                                     Button("Fork") { app.fork(session) }
+                                    Divider()
+                                    Button("Delete…", role: .destructive) { deleteTarget = session }
                                 }
                             }
                         } header: {
@@ -101,6 +104,18 @@ struct SidebarView: View {
             .padding(20)
             .presentationBackground(.regularMaterial)
             .onAppear { _ = target }
+        }
+        .alert("Delete this session?", isPresented: Binding(
+            get: { deleteTarget != nil },
+            set: { if !$0 { deleteTarget = nil } }
+        ), presenting: deleteTarget) { session in
+            Button("Delete", role: .destructive) {
+                app.delete(session)
+                deleteTarget = nil
+            }
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+        } message: { session in
+            Text("\(session.title) and its whole transcript are removed from disk. This cannot be undone.")
         }
     }
 

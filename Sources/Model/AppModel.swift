@@ -1185,6 +1185,45 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // dsh has no delete over the wire, so a conversation is removed the only way
+    // there is: its folder under ~/.dsh/sessions. That folder is named after the
+    // working directory in a shape this app should not try to reproduce, so the
+    // id is looked up instead. It follows that only the machine running the
+    // server can do this, which is why the phone has no delete.
+    #if os(macOS)
+    func delete(_ session: SessionRow) {
+        guard let folder = AppModel.sessionFolder(for: session.id) else {
+            report("could not find the folder for this session")
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: folder)
+        } catch {
+            report("delete failed: \(error.localizedDescription)")
+            return
+        }
+        Task {
+            if selected == session.id {
+                selected = nil
+                items = []
+            }
+            await refreshSessions()
+            if selected == nil, let first = sessions.first { await select(first.id) }
+        }
+    }
+
+    static func sessionFolder(for id: String) -> URL? {
+        let root = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".dsh/sessions")
+        let manager = FileManager.default
+        guard let projects = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return nil }
+        for project in projects {
+            let candidate = project.appendingPathComponent(id)
+            if manager.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return nil
+    }
+    #endif
+
     func fork(_ session: SessionRow) {
         Task {
             do {
