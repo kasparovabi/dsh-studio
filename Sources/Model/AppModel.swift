@@ -9,6 +9,28 @@ enum Appearance: String, CaseIterable, Identifiable {
     var colorScheme: ColorScheme { self == .light ? .light : .dark }
 }
 
+// One entry per machine running dsh. The phone moves between them; the desk app
+// only ever talks to its own, so this list is furniture the phone layer shows.
+struct SavedServer: Identifiable, Codable, Hashable {
+    var name: String
+    var host: String
+
+    var id: String { host }
+
+    private static let key = "dsh.servers"
+
+    static func load() -> [SavedServer] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([SavedServer].self, from: data) else { return [] }
+        return decoded
+    }
+
+    static func save(_ servers: [SavedServer]) {
+        guard let data = try? JSONEncoder().encode(servers) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
 struct SessionRow: Identifiable, Hashable {
     let id: String
     var title: String
@@ -280,16 +302,32 @@ final class AppModel: ObservableObject {
     private var frameConsumer: Task<Void, Never>?
     private var frameContinuation: AsyncStream<[String: Any]>.Continuation?
 
-    let port: Int = {
-        let raw = Int(ProcessInfo.processInfo.environment["DSH_STUDIO_PORT"] ?? "") ?? 3080
-        return (1...65535).contains(raw) ? raw : 3080
+    private(set) var port: Int = {
+        if let raw = Int(ProcessInfo.processInfo.environment["DSH_STUDIO_PORT"] ?? ""),
+           (1...65535).contains(raw) { return raw }
+        let stored = UserDefaults.standard.integer(forKey: "dsh.port")
+        return (1...65535).contains(stored) ? stored : 3080
     }()
+
+    // An address is written host:port everywhere else, so it arrives that way
+    // here too. The port lives apart from the host, which is why pasting the
+    // whole thing into the host field used to produce `addr:3080:3080`.
+    static func splitAddress(_ raw: String, fallbackPort: Int) -> (host: String, port: Int) {
+        let value = raw.trimmingCharacters(in: .whitespaces)
+        guard let colon = value.lastIndex(of: ":") else { return (value, fallbackPort) }
+        let tail = String(value[value.index(after: colon)...])
+        guard let parsed = Int(tail), (1...65535).contains(parsed) else { return (value, fallbackPort) }
+        return (String(value[..<colon]), parsed)
+    }
     // The desk app owns the server it talks to, so loopback is the only
     // sensible address there. The phone reaches one over the tailnet, so its
     // layer overwrites this before connecting.
     @Published var host: String = UserDefaults.standard.string(forKey: "dsh.host") ?? "127.0.0.1"
     @Published var appearance: Appearance = Appearance(rawValue: UserDefaults.standard.string(forKey: "dsh.appearance") ?? "") ?? .light {
         didSet { UserDefaults.standard.set(appearance.rawValue, forKey: "dsh.appearance") }
+    }
+    @Published var savedServers: [SavedServer] = SavedServer.load() {
+        didSet { SavedServer.save(savedServers) }
     }
     lazy var client = DshClient(host: host, port: port)
     #if os(macOS)
@@ -326,8 +364,36 @@ final class AppModel: ObservableObject {
         Task { await connect() }
     }
 
+    // Each machine runs its own dsh with its own sessions, so moving between
+    // them is a reconnect: drop the socket and every session-shaped thing on
+    // screen, then come up against the new address.
+    func isConnected(to address: String) -> Bool {
+        let parsed = AppModel.splitAddress(address, fallbackPort: port)
+        return parsed.host == host && parsed.port == port
+    }
+
+    func switchServer(to address: String) async {
+        let parsed = AppModel.splitAddress(address, fallbackPort: port)
+        guard !parsed.host.isEmpty else { return }
+        guard parsed.host != host || parsed.port != port else { return }
+        socket?.stop()
+        socket = nil
+        sessions = []
+        selected = nil
+        items = []
+        projectionSnapshots = [:]
+        hostCwd = ""
+        serverState = .idle
+        host = parsed.host
+        port = parsed.port
+        UserDefaults.standard.set(parsed.host, forKey: "dsh.host")
+        UserDefaults.standard.set(parsed.port, forKey: "dsh.port")
+        await connect()
+    }
+
     func connect() async {
         client.host = host
+        client.port = port
         serverState = .connecting
         for attempt in 0..<3 {
             if await probe() {
@@ -800,6 +866,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    static func imageMediaType(forExtension ext: String) -> String? {
+        switch ext.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        default: return nil
+        }
+    }
+
+    // A prompt carries text and images and nothing else, so anything else picked
+    // here goes in as a path. The agent runs on this machine and reads it with
+    // its own tools, which is also what a terminal harness does with a path.
+    func attachPath(_ path: String) {
+        let quoted = path.contains(" ") ? "\"\(path)\"" : path
+        if composer.isEmpty {
+            composer = quoted
+        } else if composer.hasSuffix(" ") || composer.hasSuffix("\n") {
+            composer += quoted
+        } else {
+            composer += " " + quoted
+        }
+    }
+
+    // The phone is not the machine the agent runs on, so a path picked there
+    // points at nothing it can open. Text and images are the whole wire format,
+    // which leaves carrying the contents over as the only way to hand it a file.
+    func attachText(name: String, body: String) {
+        let block = "\(name)\n```\n\(body.trimmingCharacters(in: .newlines))\n```"
+        composer = composer.isEmpty ? block : composer + "\n\n" + block
+    }
+
     // A file panel and a pasteboard are desk furniture. The phone reaches its
     // pictures through a photo picker in its own layer instead.
     #if os(macOS)
@@ -808,25 +906,18 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
         panel.prompt = "Attach"
         panel.begin { [weak self] resp in
             guard resp == .OK else { return }
             let urls = panel.urls
             Task { @MainActor in
                 for url in urls {
-                    guard let data = try? Data(contentsOf: url) else {
-                        self?.report("could not read \(url.lastPathComponent)")
+                    guard let mediaType = AppModel.imageMediaType(forExtension: url.pathExtension) else {
+                        self?.attachPath(url.path)
                         continue
                     }
-                    let mediaType: String
-                    switch url.pathExtension.lowercased() {
-                    case "png": mediaType = "image/png"
-                    case "jpg", "jpeg": mediaType = "image/jpeg"
-                    case "gif": mediaType = "image/gif"
-                    case "webp": mediaType = "image/webp"
-                    default:
-                        self?.report("unsupported image type: \(url.lastPathComponent)")
+                    guard let data = try? Data(contentsOf: url) else {
+                        self?.report("could not read \(url.lastPathComponent)")
                         continue
                     }
                     self?.pendingImages.append(PendingImage(
@@ -850,36 +941,30 @@ final class AppModel: ObservableObject {
         ))
     }
 
-    private func mediaType(forExtension ext: String) -> String? {
-        switch ext.lowercased() {
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "gif": return "image/gif"
-        case "webp": return "image/webp"
-        default: return nil
-        }
-    }
-
     // The field editor swallows Cmd V for text, so the composer hands the event
     // here first and only lets it through when the pasteboard holds no image.
     #if os(macOS)
     @discardableResult
     func pasteImageFromClipboard() -> Bool {
         let pasteboard = NSPasteboard.general
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] {
-            var attached = false
-            for url in urls {
-                guard let type = mediaType(forExtension: url.pathExtension),
-                      let data = try? Data(contentsOf: url) else { continue }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
+            var handled = false
+            for url in urls where url.isFileURL {
+                guard let type = AppModel.imageMediaType(forExtension: url.pathExtension),
+                      let data = try? Data(contentsOf: url) else {
+                    attachPath(url.path)
+                    handled = true
+                    continue
+                }
                 pendingImages.append(PendingImage(
                     name: url.lastPathComponent,
                     mediaType: type,
                     data: data,
                     preview: PlatformImage(data: data)
                 ))
-                attached = true
+                handled = true
             }
-            if attached { return true }
+            if handled { return true }
         }
         if let data = pasteboard.data(forType: .png) {
             pendingImages.append(PendingImage(

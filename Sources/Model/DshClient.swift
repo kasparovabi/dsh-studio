@@ -14,7 +14,7 @@ enum DshError: LocalizedError {
 
 struct DshClient {
     var host: String = "127.0.0.1"
-    let port: Int
+    var port: Int
 
     func call(_ method: String, _ payload: Any = [String: Any]()) async throws -> Any {
         guard let url = URL(string: "http://\(host):\(port)/api/\(method)") else {

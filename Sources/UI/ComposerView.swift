@@ -106,7 +106,7 @@ struct ComposerView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .help("Attach images")
+                .help("Attach an image, or drop in a file path for the agent to read")
                 if app.goal == nil {
                     Button {
                         app.goalSheetOpen = true

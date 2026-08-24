@@ -1,23 +1,27 @@
 const http = require("http");
-const { execFileSync } = require("child_process");
+const os = require("os");
 
+// Reading the interfaces rather than shelling out to the tailscale binary keeps
+// this the same script on macOS and Windows, where that binary lives elsewhere.
 function tailnetAddress() {
-  for (const binary of ["/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]) {
-    try {
-      return execFileSync(binary, ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
-    } catch {
-      continue;
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const address of addresses || []) {
+      if (address.family !== "IPv4" || address.internal) continue;
+      if (isTailnet(address.address)) return address.address;
     }
   }
-  throw new Error("tailscale address not found");
+  throw new Error("no tailnet address on this machine");
+}
+
+function isTailnet(address) {
+  const parts = address.split(".").map(Number);
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
 }
 
 // A bind outside the tailnet range would put dsh on whatever LAN the machine
 // happens to be on, so refuse rather than guess.
 function requireTailnet(address) {
-  const parts = address.split(".").map(Number);
-  const inRange = parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
-  if (!inRange) throw new Error(`refusing to bind ${address}, not a tailnet address`);
+  if (!isTailnet(address)) throw new Error(`refusing to bind ${address}, not a tailnet address`);
   return address;
 }
 
