@@ -364,6 +364,16 @@ final class AppModel: ObservableObject {
         Task { await connect() }
     }
 
+    // Coming back to a socket that quietly died looks exactly like coming back
+    // to a working one, so the connection is rebuilt rather than trusted. The
+    // reconnect re-reads the open session, which brings back whatever was
+    // missed while the app was away.
+    func resumeIfStale() {
+        guard serverState != .idle else { return bootstrap() }
+        guard !wsConnected else { return }
+        Task { await connect() }
+    }
+
     // Each machine runs its own dsh with its own sessions, so moving between
     // them is a reconnect: drop the socket and every session-shaped thing on
     // screen, then come up against the new address.
@@ -1445,6 +1455,14 @@ final class AppModel: ObservableObject {
             if live { lastError = nil }
         case "turn/end":
             running = false
+            // A turn that dies on a bad credential or a provider error ends the
+            // same way a finished one does. Without this the send just goes
+            // quiet and the prompt looks like it was never delivered.
+            if live, let reason = data["reason"] as? [String: Any],
+               reason["kind"] as? String == "error" {
+                let error = reason["error"] as? [String: Any]
+                report(error?["message"] as? String ?? "the turn ended with an error")
+            }
             if live { refreshSubagents() }
         case "session/title":
             if live { scheduleSessionsRefresh() }
