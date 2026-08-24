@@ -372,6 +372,10 @@ final class AppModel: ObservableObject {
         return parsed.host == host && parsed.port == port
     }
 
+    var serverName: String {
+        savedServers.first(where: { isConnected(to: $0.host) })?.name ?? host
+    }
+
     func switchServer(to address: String) async {
         let parsed = AppModel.splitAddress(address, fallbackPort: port)
         guard !parsed.host.isEmpty else { return }
