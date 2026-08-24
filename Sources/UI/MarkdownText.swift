@@ -95,7 +95,7 @@ struct TableBlock: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.02))
+                .fill(Color.chipFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -135,7 +135,7 @@ struct CodeBlockView: View {
             HStack {
                 Text(language.isEmpty ? "code" : language)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(Color.codeLabel)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
@@ -149,17 +149,17 @@ struct CodeBlockView: View {
                         Text(copied ? "Copied" : "Copy")
                             .font(.system(size: 10, weight: .medium))
                     }
-                    .foregroundStyle(Color.white.opacity(0.7))
+                    .foregroundStyle(Color.codeAction)
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Color.white.opacity(0.06))
+            .background(Color.codeHeaderFill)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Color(hex: 0xE8EAED))
+                    .foregroundStyle(Color.codeText)
                     .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,7 +167,7 @@ struct CodeBlockView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.inkPrimary)
+                .fill(Color.codeSurface)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }

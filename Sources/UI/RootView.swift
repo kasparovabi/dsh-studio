@@ -5,7 +5,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            MetalBackground(activity: app.running ? 1.0 : 0.15)
+            MetalBackground(activity: app.running ? 1.0 : 0.5, dark: app.appearance == .dark)
                 .ignoresSafeArea()
             HStack(spacing: 14) {
                 SidebarView()
@@ -14,7 +14,7 @@ struct RootView: View {
             }
             .padding(14)
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(app.appearance.colorScheme)
         .onAppear { app.bootstrap() }
     }
 }

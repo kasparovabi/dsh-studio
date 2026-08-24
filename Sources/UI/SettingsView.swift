@@ -28,6 +28,7 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    appearanceSection
                     providerCredentials
                     defaultModel
                     footnote
@@ -38,6 +39,25 @@ struct SettingsView: View {
         .padding(20)
         .frame(width: 520, height: 560)
         .onAppear { if app.credentialRows.isEmpty { Task { await app.loadSettings() } } }
+    }
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Appearance")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.inkPrimary)
+            Text("The particle field behind the panels is pigment on paper in light and glowing light in dark, so it reads much stronger on the dark ground.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.inkSecondary)
+            Picker("", selection: $app.appearance) {
+                ForEach(Appearance.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
+        }
     }
 
     private var providerCredentials: some View {
@@ -93,7 +113,7 @@ struct SettingsView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.03))
+                .fill(Color.chipFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

@@ -45,7 +45,7 @@ struct QuestionCard: View {
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(Color.black.opacity(0.03))
+                                .fill(Color.chipFill)
                         )
                 }
             }
@@ -59,7 +59,7 @@ struct QuestionCard: View {
                         .foregroundStyle(Color.inkSecondary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
-                        .background(Capsule().fill(Color.black.opacity(0.05)))
+                        .background(Capsule().fill(Color.chipFillStrong))
                 }
                 .buttonStyle(.plain)
                 .help("Let the agent continue without an answer")
@@ -68,10 +68,10 @@ struct QuestionCard: View {
                 } label: {
                     Text(request.items.first?.approveLabel ?? "Submit")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(submitEnabled ? Color.white : Color.inkSecondary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 7)
-                        .background(Capsule().fill(submitEnabled ? Color.accentPurple : Color.inkSecondary.opacity(0.4)))
+                        .background(Capsule().fill(submitEnabled ? Color.accentPurple : Color.chipFillStrong))
                 }
                 .buttonStyle(.plain)
                 .disabled(!submitEnabled)
@@ -149,7 +149,7 @@ struct FlowChips: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(isOn ? Color.accentPurple : Color.black.opacity(0.04))
+                            .fill(isOn ? Color.accentPurple : Color.chipFill)
                     )
                 }
                 .buttonStyle(.plain)

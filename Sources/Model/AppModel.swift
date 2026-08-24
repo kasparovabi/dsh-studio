@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum Appearance: String, CaseIterable, Identifiable {
+    case light
+    case dark
+
+    var id: String { rawValue }
+    var label: String { self == .light ? "Light" : "Dark" }
+    var colorScheme: ColorScheme { self == .light ? .light : .dark }
+}
+
 struct SessionRow: Identifiable, Hashable {
     let id: String
     var title: String
@@ -279,6 +288,9 @@ final class AppModel: ObservableObject {
     // sensible address there. The phone reaches one over the tailnet, so its
     // layer overwrites this before connecting.
     @Published var host: String = UserDefaults.standard.string(forKey: "dsh.host") ?? "127.0.0.1"
+    @Published var appearance: Appearance = Appearance(rawValue: UserDefaults.standard.string(forKey: "dsh.appearance") ?? "") ?? .light {
+        didSet { UserDefaults.standard.set(appearance.rawValue, forKey: "dsh.appearance") }
+    }
     lazy var client = DshClient(host: host, port: port)
     #if os(macOS)
     private lazy var server = ServerManager(port: port)

@@ -52,7 +52,7 @@ struct ComposerView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(Capsule().fill(Color.black.opacity(0.04)))
+                            .background(Capsule().fill(Color.chipFill))
                         }
                     }
                     .padding(.horizontal, 16)
@@ -70,7 +70,7 @@ struct ComposerView: View {
                                             .resizable()
                                             .scaledToFill()
                                     } else {
-                                        Color.black.opacity(0.05)
+                                        Color.chipFillStrong
                                     }
                                 }
                                 .frame(width: 56, height: 56)
@@ -149,9 +149,9 @@ struct ComposerView: View {
                     } label: {
                         Image(systemName: "clock")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(sendEnabled ? Color.white : Color.inkSecondary)
                             .frame(width: 32, height: 32)
-                            .background(Circle().fill(sendEnabled ? Color.accentOrange : Color.inkSecondary.opacity(0.4)))
+                            .background(Circle().fill(sendEnabled ? Color.accentOrange : Color.chipFillStrong))
                     }
                     .buttonStyle(.plain)
                     .disabled(!sendEnabled)
@@ -162,9 +162,9 @@ struct ComposerView: View {
                 } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(sendEnabled ? Color.white : Color.inkSecondary)
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(sendEnabled ? Color.accentPurple : Color.inkSecondary.opacity(0.4)))
+                        .background(Circle().fill(sendEnabled ? Color.accentPurple : Color.chipFillStrong))
                 }
                 .buttonStyle(.plain)
                 .help(app.running ? "Send into the running turn" : "Send")

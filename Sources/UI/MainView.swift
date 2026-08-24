@@ -88,7 +88,7 @@ struct ServerBanner: View {
                 } label: {
                     Text("Retry")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.onInk)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 6)
                         .background(Capsule().fill(Color.inkPrimary))
@@ -309,7 +309,7 @@ struct GoalCard: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.inkSecondary)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.black.opacity(0.04)))
+                    .background(Circle().fill(Color.chipFill))
             }
             .buttonStyle(.plain)
             .help("Clear goal")
@@ -333,7 +333,7 @@ struct GoalCard: View {
                 .foregroundStyle(Color.inkPrimary)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(Color.black.opacity(0.05)))
+                .background(Capsule().fill(Color.chipFillStrong))
         }
         .buttonStyle(.plain)
     }
@@ -394,7 +394,7 @@ struct ApprovalCard: View {
                     .foregroundStyle(Color.inkPrimary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
-                    .background(Capsule().fill(Color.black.opacity(0.05)))
+                    .background(Capsule().fill(Color.chipFillStrong))
             }
             .buttonStyle(.plain)
             Button {
@@ -402,7 +402,7 @@ struct ApprovalCard: View {
             } label: {
                 Text("Allow once")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.onInk)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
                     .background(Capsule().fill(Color.inkPrimary))
@@ -462,7 +462,7 @@ struct TopBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.inkSecondary)
                     .frame(width: 26, height: 26)
-                    .background(Circle().fill(Color.black.opacity(0.04)))
+                    .background(Circle().fill(Color.chipFill))
             }
             .buttonStyle(.plain)
             .help("Available skills")
@@ -477,7 +477,7 @@ struct TopBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.inkSecondary)
                     .frame(width: 26, height: 26)
-                    .background(Circle().fill(Color.black.opacity(0.04)))
+                    .background(Circle().fill(Color.chipFill))
             }
             .buttonStyle(.plain)
             .help("Settings")
@@ -673,7 +673,7 @@ struct TopBar: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Capsule().fill(Color.black.opacity(0.04)))
+            .background(Capsule().fill(Color.chipFill))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -744,7 +744,7 @@ struct TokenCard: View {
                             .foregroundStyle(Color.inkSecondary)
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Capsule().fill(Color.black.opacity(0.06))
+                                Capsule().fill(Color.chipFillStrong)
                                 Capsule()
                                     .fill(pressureColor(pressure.fraction))
                                     .frame(width: max(geo.size.width * pressure.fraction, 3))
@@ -773,7 +773,7 @@ struct TokenCard: View {
                         }
                     }
                     if app.stats.totalTokens == 0 {
-                        RoundedRectangle(cornerRadius: 3).fill(Color.black.opacity(0.05))
+                        RoundedRectangle(cornerRadius: 3).fill(Color.chipFillStrong)
                     }
                 }
             }

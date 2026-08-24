@@ -189,7 +189,7 @@ struct SidebarView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.04))
+                .fill(Color.chipFill)
         )
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -248,7 +248,7 @@ struct SidebarView: View {
                 Text("New session")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.onInk)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.inkPrimary))
@@ -275,10 +275,25 @@ struct SidebarView: View {
                         .foregroundStyle(Color.inkSecondary)
                 }
                 Spacer()
+                appearanceToggle
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
+    }
+
+    private var appearanceToggle: some View {
+        Button {
+            app.appearance = app.appearance == .light ? .dark : .light
+        } label: {
+            Image(systemName: app.appearance == .light ? "moon" : "sun.max")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.inkSecondary)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Color.chipFill))
+        }
+        .buttonStyle(.plain)
+        .help(app.appearance == .light ? "Switch to dark" : "Switch to light")
     }
 }
 
@@ -343,7 +358,7 @@ struct SessionRowView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(selected ? Color.black.opacity(0.05) : .clear)
+                .fill(selected ? Color.chipFillStrong : .clear)
         )
         .contentShape(Rectangle())
     }

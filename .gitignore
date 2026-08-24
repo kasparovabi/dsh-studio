@@ -20,3 +20,4 @@ DshStudio.xcodeproj/
 *.log
 GAUNTLET*.md
 DESIGN*.md
+.build-mac/

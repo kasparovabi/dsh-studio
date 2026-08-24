@@ -315,7 +315,7 @@ struct TrajectoryRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Capsule().fill(Color.black.opacity(0.03)))
+            .background(Capsule().fill(Color.chipFill))
             .onTapGesture { expanded.toggle() }
         case .tool(let id, let name, let title, let detail, let status):
             VStack(alignment: .leading, spacing: 6) {
@@ -407,7 +407,7 @@ struct AttachmentThumbnail: View {
                     .scaledToFill()
             } else {
                 ZStack {
-                    Color.black.opacity(0.04)
+                    Color.chipFill
                     ProgressView().controlSize(.small)
                 }
                 .onAppear { app.loadAttachment(attachmentId) }
