@@ -884,6 +884,16 @@ final class AppModel: ObservableObject {
         // check. Reading the tree once beats one walk per row.
         let onDisk = serverIsLocal ? AppModel.sessionIDsOnDisk() : nil
         #endif
+        // The snapshot is cached for every session the server named, before any
+        // of the filtering below. A session created a moment ago is still blank
+        // and so never reaches the rows, yet it is the one about to be selected,
+        // and without its snapshot it opens with no permission preset on screen.
+        for item in list {
+            guard let id = item["sessionId"] as? String, SessionID.isSafe(id),
+                  let values = (item["projections"] as? [String: Any])?["values"] as? [String: Any]
+            else { continue }
+            projectionSnapshots[id] = values
+        }
         sessions = list.compactMap { item in
             guard let id = item["sessionId"] as? String, SessionID.isSafe(id) else { return nil }
             // A blank session is one dsh made and nobody has written in; it is
@@ -893,7 +903,6 @@ final class AppModel: ObservableObject {
             if let onDisk, !onDisk.contains(id) { return nil }
             #endif
             let values = (item["projections"] as? [String: Any])?["values"] as? [String: Any]
-            if let values { projectionSnapshots[id] = values }
             var title = values?["title"] as? String
             if title == nil, let t = (values?["title"] as? [String: Any])?["title"] as? String { title = t }
             let stats = values?["sessionStats"] as? [String: Any]
@@ -908,7 +917,9 @@ final class AppModel: ObservableObject {
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
-        let liveIDs = Set(sessions.map { $0.id })
+        // Pruned against what the server listed rather than what is on screen,
+        // so a snapshot cached above survives the filters that hid its row.
+        let liveIDs = Set(list.compactMap { $0["sessionId"] as? String })
         projectionSnapshots = projectionSnapshots.filter { liveIDs.contains($0.key) }
         if selected == nil, let first = sessions.first {
             await select(first.id)
