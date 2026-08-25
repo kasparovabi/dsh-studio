@@ -13,6 +13,30 @@ final class ServerManager {
 
     var spawnedByApp: Bool { process != nil }
 
+    // A launchd agent keeps the server alive so the phone can reach this Mac
+    // with the app closed. Waking that agent has to come before spawning our
+    // own child, otherwise both own port 3080 and launchd loops on exit 1.
+    private let agentLabel = "com.kasparov.dsh-web"
+
+    var agentInstalled: Bool {
+        let plist = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist")
+        return FileManager.default.fileExists(atPath: plist.path)
+    }
+
+    @discardableResult
+    func wakeAgent() -> Bool {
+        guard agentInstalled else { return false }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["kickstart", "gui/\(getuid())/\(agentLabel)"]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return false }
+        task.waitUntilExit()
+        return task.terminationStatus == 0
+    }
+
     // Every provider dsh supports reads its key from the env var named by
     // `apiKeyEnv` in ~/.dsh/settings.yaml. To match a terminal-launched dsh we
     // hand the child the login-shell environment plus every key defined in
@@ -58,6 +82,30 @@ final class ServerManager {
         return result
     }
 
+    // The hermes token pool rotates between a primary and a backup credential,
+    // and ~/.hermes/.env keeps whichever was current when it was last written.
+    // Reading the pool directly is what stops a spawned server from serving a
+    // week-old token whose quota is already spent.
+    private func pooledToken() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard let poolData = try? Data(contentsOf: home.appendingPathComponent(".hermes/token-havuzu.json")),
+              let pool = try? JSONSerialization.jsonObject(with: poolData) as? [String: Any],
+              let entries = pool["tokenlar"] as? [[String: Any]] else { return nil }
+        var byName: [String: String] = [:]
+        for entry in entries {
+            if let name = entry["ad"] as? String, let token = entry["token"] as? String {
+                byName[name] = token
+            }
+        }
+        var wanted = "birincil"
+        if let stateData = try? Data(contentsOf: home.appendingPathComponent(".hermes/token-nobetci-durum.json")),
+           let state = try? JSONSerialization.jsonObject(with: stateData) as? [String: Any],
+           let active = state["aktif"] as? String {
+            wanted = active
+        }
+        return byName[wanted] ?? byName["birincil"] ?? entries.first?["token"] as? String
+    }
+
     func launch() throws {
         if let old = process, old.isRunning { old.terminate() }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -68,6 +116,7 @@ final class ServerManager {
         for (key, value) in loginShellEnvironment() { env[key] = value }
         for (key, value) in readEnvFile() { env[key] = value }
         env.removeValue(forKey: "ANTHROPIC_API_KEY")
+        if let token = pooledToken() { env["ANTHROPIC_AUTH_TOKEN"] = token }
         env["PATH"] = "\(home)/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         p.environment = env
         p.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Developer")

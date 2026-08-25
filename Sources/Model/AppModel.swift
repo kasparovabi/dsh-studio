@@ -422,6 +422,15 @@ final class AppModel: ObservableObject {
         // silent server is the end of the road, so say so instead of stalling.
         #if os(macOS)
         serverState = .launching
+        if server.wakeAgent() {
+            for _ in 0..<40 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if await probe() {
+                    await becomeReady()
+                    return
+                }
+            }
+        }
         do {
             try server.launch()
         } catch {
