@@ -13,6 +13,10 @@ if pgrep -f "/Applications/DSH Studio.app/Contents/MacOS/DshStudio" > /dev/null;
   exit 1
 fi
 
+# The signing file names a real developer team, so it is not in the tree. A
+# fresh checkout gets the placeholder copy and still builds ad-hoc.
+[ -f "$ROOT/Signing.xcconfig" ] || cp "$ROOT/Signing.example.xcconfig" "$ROOT/Signing.xcconfig"
+
 xcodegen generate --project "$ROOT" > /dev/null
 xcodebuild -project "$ROOT/DshStudio.xcodeproj" \
   -scheme DshStudio \

@@ -23,3 +23,13 @@ DESIGN*.md
 .build-mac/
 __pycache__/
 *.pyc
+Signing.xcconfig
+project.phone.yml
+Sources/iOS/
+Info-iOS.plist
+scripts/ios-run.sh
+scripts/sim-drag.sh
+scripts/sim-tap.sh
+scripts/testflight.py
+scripts/asc.py
+scripts/exportOptions.plist
