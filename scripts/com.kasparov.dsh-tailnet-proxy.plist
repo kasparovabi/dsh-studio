@@ -7,7 +7,7 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/opt/homebrew/bin/node</string>
-		<string>$HOME/Developer/DshStudio/scripts/tailnet-proxy.js</string>
+		<string>REPLACE_WITH_CHECKOUT_PATH/scripts/tailnet-proxy.js</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

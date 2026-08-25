@@ -21,3 +21,5 @@ DshStudio.xcodeproj/
 GAUNTLET*.md
 DESIGN*.md
 .build-mac/
+__pycache__/
+*.pyc
