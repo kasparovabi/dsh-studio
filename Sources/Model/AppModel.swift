@@ -1,4 +1,6 @@
 import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
 
 enum Appearance: String, CaseIterable, Identifiable {
     case light
@@ -953,12 +955,41 @@ final class AppModel: ObservableObject {
     }
     #endif
 
+    // Anthropic refuses an image whose long edge passes 2000 pixels once a
+    // request carries several of them, and scales anything past 1568 down on
+    // its own regardless. Doing it here keeps that from arriving as a 400 in
+    // the middle of a conversation, long after the picture was attached.
+    static func fittedForWire(data: Data, mediaType: String) -> (data: Data, mediaType: String) {
+        let limit = 1568
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              max(width, height) > limit else { return (data, mediaType) }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: limit,
+        ]
+        guard let scaled = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return (data, mediaType)
+        }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return (data, mediaType)
+        }
+        CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return (data, mediaType) }
+        return (output as Data, "image/jpeg")
+    }
+
     func addPendingImage(name: String, mediaType: String, data: Data) {
+        let fitted = AppModel.fittedForWire(data: data, mediaType: mediaType)
         pendingImages.append(PendingImage(
             name: name,
-            mediaType: mediaType,
-            data: data,
-            preview: PlatformImage(data: data)
+            mediaType: fitted.mediaType,
+            data: fitted.data,
+            preview: PlatformImage(data: fitted.data)
         ))
     }
 
