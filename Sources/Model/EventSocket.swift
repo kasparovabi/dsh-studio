@@ -101,11 +101,14 @@ final class EventSocket: NSObject, URLSessionWebSocketDelegate {
             let closed = self.closed
             self.lock.unlock()
             guard !closed, let task else { return }
-            if silence > self.silenceBudget {
-                return self.drop("the stream went quiet for \(Int(silence))s")
-            }
+            // A session nobody is talking to says nothing for as long as that
+            // lasts, so silence alone is not evidence of a dead link. It only
+            // decides when to ask; the ping is what answers, and a link that is
+            // really gone fails it.
             task.sendPing { error in
-                if let error { self.drop("ping failed: \(error.localizedDescription)") }
+                guard let error else { return }
+                let quiet = silence > self.silenceBudget ? " after \(Int(silence))s of silence" : ""
+                self.drop("ping failed\(quiet): \(error.localizedDescription)")
             }
         }
         lock.lock()
