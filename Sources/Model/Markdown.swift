@@ -19,15 +19,48 @@ enum MarkdownBlock: Identifiable {
 }
 
 enum MarkdownParser {
-    private static var cache: [String: [MarkdownBlock]] = [:]
-    private static var order: [String] = []
+    private struct Entry {
+        let blocks: [MarkdownBlock]
+        let cost: Int
+    }
+
+    private static var cache: [Int: Entry] = [:]
+    private static var order: [Int] = []
+    private static var held = 0
+    private static let budget = 4_000_000
+    private static let perItemCap = 200_000
+
+    private static var inlineCache: [Int: AttributedString] = [:]
+    private static var inlineOrder: [Int] = []
 
     static func blocks(_ text: String) -> [MarkdownBlock] {
-        if let cached = cache[text] { return cached }
+        let key = text.hashValue
+        if let cached = cache[key] { return cached.blocks }
         let parsed = parse(text)
-        cache[text] = parsed
-        order.append(text)
-        if order.count > 300 { cache.removeValue(forKey: order.removeFirst()) }
+        guard text.utf8.count <= perItemCap else { return parsed }
+        cache[key] = Entry(blocks: parsed, cost: text.utf8.count)
+        // Re-inserting a key that was evicted earlier must not leave the old
+        // position behind, or the queue grows without ever shrinking.
+        order.removeAll { $0 == key }
+        order.append(key)
+        held += text.utf8.count
+        while held > budget, let oldest = order.first {
+            order.removeFirst()
+            held -= cache.removeValue(forKey: oldest)?.cost ?? 0
+        }
+        return parsed
+    }
+
+    // Inline parsing runs on every body pass of every row, and it builds a fresh
+    // AttributedString and walks its runs each time.
+    static func cachedInline(_ text: String) -> AttributedString {
+        let key = text.hashValue
+        if let cached = inlineCache[key] { return cached }
+        let parsed = inline(text)
+        guard text.utf8.count <= 20_000 else { return parsed }
+        inlineCache[key] = parsed
+        inlineOrder.append(key)
+        if inlineOrder.count > 600 { inlineCache.removeValue(forKey: inlineOrder.removeFirst()) }
         return parsed
     }
 

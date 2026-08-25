@@ -77,6 +77,15 @@ struct SidebarView: View {
                             .foregroundStyle(Color.inkSecondary)
                             .padding(.top, 16)
                     }
+                    // The server answers a search with a capped page, so a
+                    // narrower query is the only way to see the rest.
+                    if app.searchTruncated {
+                        Text("More matches than fit. Narrow the search to see them.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.inkSecondary)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                    }
                 }
                 .padding(.horizontal, 10)
             }
@@ -170,10 +179,11 @@ struct SidebarView: View {
     }
 
     private var groupedSessions: [SessionGroup] {
-        let rows = visibleSessions
+        var byBucket: [SessionBucket: [SessionRow]] = [:]
+        for row in visibleSessions { byBucket[row.bucket, default: []].append(row) }
         return SessionBucket.allCases.compactMap { bucket in
-            let matching = rows.filter { $0.bucket == bucket }
-            return matching.isEmpty ? nil : SessionGroup(bucket: bucket, rows: matching)
+            guard let rows = byBucket[bucket], !rows.isEmpty else { return nil }
+            return SessionGroup(bucket: bucket, rows: rows)
         }
     }
 

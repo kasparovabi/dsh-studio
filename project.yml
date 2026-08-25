@@ -31,3 +31,28 @@ targets:
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
+  DshStudioTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/DshStudioTests
+    dependencies:
+      - target: DshStudio
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  DshStudio:
+    build:
+      targets:
+        DshStudio: all
+        DshStudioTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - DshStudioTests

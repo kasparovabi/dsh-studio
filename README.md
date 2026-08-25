@@ -36,9 +36,10 @@ dsh ships a capable local agent harness, but everyday use runs through a termina
 ## Requirements
 
 - macOS 14 or later
-- [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh) installed (`npm i -g @deepseek-ai/dsh`), reachable at `~/.npm-global/bin/dsh`
+- [dsh](https://www.npmjs.com/package/@deepseek-ai/dsh) installed and reachable at `~/.npm-global/bin/dsh`. It is prerelease, so pin the version you tested against rather than tracking the tag: `npm i -g --ignore-scripts @deepseek-ai/dsh@0.1.0-rc.7`. The app hands this binary your login-shell environment, which is why what you install here matters.
 - Provider credentials for the models you use. Enter them in the app's Settings panel (the gear button), which stores each key in dsh's credential store and applies it on the next request. dsh also reads keys from the env var named by `apiKeyEnv` in `~/.dsh/settings.yaml`; when the app launches its own server it forwards the environment of your login shell plus every key in `~/.hermes/.env`, so an existing shell setup keeps working for any provider, not just Anthropic. A key supplied by the environment is shown but cannot be edited in the panel, since dsh treats the launching environment as authoritative.
 - Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+- Node 22.15 or newer if you want the history salvage path, which decompresses session logs with `zstdDecompressSync`
 
 ## Build & run
 
@@ -58,8 +59,22 @@ On launch the app probes `http://127.0.0.1:3080`. If a dsh server is already ans
 
 - dsh is prerelease; its RPC surface can change between versions, and this client tracks a specific snapshot of it.
 - Credentials are taken from the environment of your login shell and `~/.hermes/.env`. If you keep keys elsewhere, export them in your shell profile or add them to `~/.hermes/.env`.
-- The local dsh API is unauthenticated by design (loopback only); treat it like any other local dev server.
-- One person, one machine, nothing leaves it. No telemetry, no accounts.
+- The local dsh API is unauthenticated by design and answers only on loopback; treat it like any other local dev server.
+- No telemetry, no accounts. The app talks to your dsh server and nothing else.
+
+## Reaching the server from another machine
+
+`scripts/tailnet-proxy.js` puts the RPC surface on your [Tailscale](https://tailscale.com) address so a phone or a second computer can drive the same server. Understand what that does before you install it: dsh's own protection is the loopback check on the `Host` header, and a proxy necessarily defeats it.
+
+The proxy replaces that protection with a shared key rather than removing it:
+
+```bash
+mkdir -p ~/.dsh && openssl rand -hex 32 > ~/.dsh/proxy-token && chmod 600 ~/.dsh/proxy-token
+```
+
+Every request must carry it as `X-Dsh-Key` (a WebSocket may instead offer it as a `dsh-key.<value>` subprotocol), only `/api/` paths are forwarded, and only peers inside `100.64.0.0/10` are answered. Set `DSH_PROXY_PEERS` to a comma-separated list to narrow that to named devices. In the app, paste the key into the Servers sheet next to the address.
+
+Two things are still worth doing on top: restrict port 3080 to your own devices in the Tailscale ACL, and remember that anyone holding the key gets whatever tool policy `~/.dsh/settings.yaml` grants, which by default is `danger-full-access`.
 
 ## License
 

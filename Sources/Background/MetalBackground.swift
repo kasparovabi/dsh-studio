@@ -16,7 +16,7 @@ final class BackgroundRenderer: NSObject, MTKViewDelegate {
     private let darkPoints: MTLRenderPipelineState
     private let darkTraces: MTLRenderPipelineState
     private let start = CACurrentMediaTime()
-    private let pointCount = 900 + 140_000
+    private let pointCount = 900 + 60_000
     private let traceCount = 11 * 53 * 2
     var mouseTarget = SIMD2<Float>(0.5, 0.5)
     var activity: Float = 0.15
@@ -112,7 +112,9 @@ struct MetalBackground: NSViewRepresentable {
         guard let device = MTLCreateSystemDefaultDevice(),
               let renderer = BackgroundRenderer(device: device) else { return view }
         view.device = device
-        view.preferredFramesPerSecond = 60
+        // The field drifts slowly, so half the frames carry all of the motion
+        // anyone can see and the fill cost halves with them.
+        view.preferredFramesPerSecond = 30
         view.colorPixelFormat = .bgra8Unorm
         view.clearColor = MetalBackground.ground(dark: dark)
         view.delegate = renderer

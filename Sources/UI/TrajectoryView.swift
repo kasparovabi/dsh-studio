@@ -4,7 +4,7 @@ struct TrajectoryView: View {
     @EnvironmentObject var app: AppModel
     @State private var pinnedToBottom = true
     @State private var viewportFrame: CGRect = .zero
-    @State private var wheelMonitor: Any?
+    @StateObject private var wheel = WheelMonitor()
     @State private var bottomGap = GapBox()
 
     final class GapBox {
@@ -102,12 +102,12 @@ struct TrajectoryView: View {
     // lands every few frames and the scroll it triggers runs before the new
     // geometry has propagated, so the reader gets dragged back down. Watching
     // the wheel unparks the transcript in the same event the reader scrolls.
-    // The monitor is never torn down: SwiftUI can call onAppear for the
-    // replacement view before onDisappear for the old one, and removing it
-    // there would leave the transcript deaf for the rest of the session.
+    // Removing it in onDisappear would leave the transcript deaf, because
+    // SwiftUI can call onAppear for the replacement view before onDisappear for
+    // the old one. Owning it in a StateObject instead means the monitor lives
+    // exactly as long as the view's own storage and its deinit takes it back.
     private func installWheelMonitor() {
-        guard wheelMonitor == nil else { return }
-        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+        wheel.install { event in
             noteWheel(event)
             return event
         }
@@ -327,7 +327,7 @@ struct TrajectoryRow: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Color.accentTeal.opacity(0.12)))
-                    Text(title)
+                    Text(title.sanitizedForDisplay)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.inkPrimary)
                         .lineLimit(1)
@@ -340,7 +340,7 @@ struct TrajectoryRow: View {
                 }
                 if expanded, !detail.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        Text(detail)
+                        Text(detail.sanitizedForDisplay)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(Color.inkSecondary)
                             .textSelection(.enabled)
@@ -419,5 +419,21 @@ struct AttachmentThumbnail: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.hairline, lineWidth: 1)
         )
+    }
+}
+
+
+// AppKit hands back an opaque token that has to be given back, and a SwiftUI
+// view's own lifetime is the only thing here that knows when that is.
+final class WheelMonitor: ObservableObject {
+    private var token: Any?
+
+    func install(_ handler: @escaping (NSEvent) -> NSEvent?) {
+        guard token == nil else { return }
+        token = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: handler)
+    }
+
+    deinit {
+        if let token { NSEvent.removeMonitor(token) }
     }
 }

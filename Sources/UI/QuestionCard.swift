@@ -27,11 +27,11 @@ struct QuestionCard: View {
                             .padding(.vertical, 2)
                             .background(Capsule().fill(Color.accentPurple.opacity(0.10)))
                     }
-                    Text(item.question)
+                    Text(item.question.sanitizedForDisplay)
                         .font(.system(size: 13))
                         .foregroundStyle(Color.inkPrimary)
                     if let detail = item.detail {
-                        Text(detail)
+                        Text(detail.sanitizedForDisplay)
                             .font(.system(size: 11))
                             .foregroundStyle(Color.inkSecondary)
                     }
@@ -134,11 +134,11 @@ struct FlowChips: View {
                     selections[item.id] = set
                 } label: {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(option.label)
+                        Text(option.label.sanitizedForDisplay)
                             .font(.system(size: 12, weight: isOn ? .semibold : .regular))
                             .foregroundStyle(isOn ? Color.white : Color.inkPrimary)
                         if let desc = option.description {
-                            Text(desc)
+                            Text(desc.sanitizedForDisplay)
                                 .font(.system(size: 10))
                                 .foregroundStyle(isOn ? Color.white.opacity(0.8) : Color.inkSecondary)
                                 .lineLimit(1)

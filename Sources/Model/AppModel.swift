@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import OSLog
 import UniformTypeIdentifiers
 
 enum Appearance: String, CaseIterable, Identifiable {
@@ -101,12 +102,18 @@ struct ApprovalRequest: Identifiable, Equatable {
 }
 
 extension String {
+    private static func isDisplayable(_ scalar: Unicode.Scalar) -> Bool {
+        !scalar.properties.isBidiControl
+            && !(scalar.value < 0x20 && scalar != "\n" && scalar != "\t")
+            && !(0x2066...0x2069).contains(scalar.value)
+    }
+
+    // Called from view bodies on text that almost never contains anything to
+    // strip, so the common case walks the scalars and returns self rather than
+    // building a second copy of every message on screen.
     var sanitizedForDisplay: String {
-        String(unicodeScalars.filter { scalar in
-            !scalar.properties.isBidiControl
-                && !(scalar.value < 0x20 && scalar != "\n" && scalar != "\t")
-                && !(0x2066...0x2069).contains(scalar.value)
-        })
+        guard unicodeScalars.contains(where: { !String.isDisplayable($0) }) else { return self }
+        return String(String.UnicodeScalarView(unicodeScalars.filter(String.isDisplayable)))
     }
 }
 
@@ -272,9 +279,15 @@ final class AppModel: ObservableObject {
     @Published var agentPreset: String?
     @Published var skills: [SkillInfo] = []
     @Published var recoveredHistory = false
+    @Published var historyTruncated = false
+    @Published var droppedToolResults = 0
+    @Published var searchTruncated = false
     @Published var skillsSheetOpen = false
-    @Published var settingsOpen = false
+    @Published var settingsOpen = false {
+        didSet { if !settingsOpen { credentialDrafts = [:] } }
+    }
     @Published var credentialRows: [CredentialRow] = []
+    @Published var credentialsReadable = true
     @Published var credentialDrafts: [String: String] = [:]
     @Published var settingsProvider = ""
     @Published var settingsModel = ""
@@ -314,13 +327,65 @@ final class AppModel: ObservableObject {
     // An address is written host:port everywhere else, so it arrives that way
     // here too. The port lives apart from the host, which is why pasting the
     // whole thing into the host field used to produce `addr:3080:3080`.
-    static func splitAddress(_ raw: String, fallbackPort: Int) -> (host: String, port: Int) {
+    nonisolated static func splitAddress(_ raw: String, fallbackPort: Int) -> (host: String, port: Int) {
         let value = raw.trimmingCharacters(in: .whitespaces)
+        // A bare IPv6 literal is all colons, so the last one is not a separator.
+        // The bracketed form is the only way to write one with a port, and it is
+        // handled first for exactly that reason.
+        if value.hasPrefix("["), let close = value.lastIndex(of: "]") {
+            let inner = String(value[value.index(after: value.startIndex)..<close])
+            let rest = String(value[value.index(after: close)...])
+            guard rest.hasPrefix(":"), let parsed = Int(rest.dropFirst()),
+                  (1...65535).contains(parsed) else { return (inner, fallbackPort) }
+            return (inner, parsed)
+        }
         guard let colon = value.lastIndex(of: ":") else { return (value, fallbackPort) }
+        let head = String(value[..<colon])
+        guard !head.contains(":") else { return (value, fallbackPort) }
         let tail = String(value[value.index(after: colon)...])
         guard let parsed = Int(tail), (1...65535).contains(parsed) else { return (value, fallbackPort) }
-        return (String(value[..<colon]), parsed)
+        return (head, parsed)
     }
+    nonisolated static func isPrivateHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" { return true }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        let numbers = parts.compactMap { Int($0) }
+        guard numbers.count == 4, numbers.allSatisfy({ (0...255).contains($0) }) else { return false }
+        switch (numbers[0], numbers[1]) {
+        case (127, _): return true
+        case (10, _): return true
+        case (192, 168): return true
+        case (172, 16...31): return true
+        case (100, 64...127): return true
+        default: return false
+        }
+    }
+
+    // Reaching another machine goes through the tailnet proxy, which refuses a
+    // request without this key. It is per address, because each machine mints
+    // its own.
+    nonisolated static func accessToken(forHost host: String, port: Int) -> String {
+        let stored = UserDefaults.standard.dictionary(forKey: "dsh.keys") as? [String: String] ?? [:]
+        return stored["\(host):\(port)"] ?? ""
+    }
+
+    nonisolated static func setAccessToken(_ token: String, forHost host: String, port: Int) {
+        var stored = UserDefaults.standard.dictionary(forKey: "dsh.keys") as? [String: String] ?? [:]
+        let key = "\(host):\(port)"
+        if token.isEmpty { stored.removeValue(forKey: key) } else { stored[key] = token }
+        UserDefaults.standard.set(stored, forKey: "dsh.keys")
+    }
+
+    var accessToken: String {
+        get { AppModel.accessToken(forHost: host, port: port) }
+        set {
+            AppModel.setAccessToken(newValue, forHost: host, port: port)
+            client.accessToken = newValue
+            objectWillChange.send()
+        }
+    }
+
     // The desk app owns the server it talks to, so loopback is the only
     // sensible address there. The phone reaches one over the tailnet, so its
     // layer overwrites this before connecting.
@@ -339,6 +404,14 @@ final class AppModel: ObservableObject {
     private var loadGeneration = 0
     private var projectionSnapshots: [String: [String: Any]] = [:]
     private var reconnectInFlight = false
+    private var connectTask: Task<Void, Never>?
+    @Published var inFlightApprovals: Set<String> = []
+    @Published var inFlightQuestions: Set<String> = []
+    private var inFlightSessionCalls: Set<String> = []
+    private var historyLoading: String?
+    private var bufferedFrames: [[String: Any]] = []
+    private var promptDrafts: [String: (text: String, images: [PendingImage])] = [:]
+    static let log = Logger(subsystem: "com.kasparov.dsh-studio", category: "app")
     private var errorGeneration = 0
 
     var serverStatusText: String {
@@ -391,25 +464,81 @@ final class AppModel: ObservableObject {
     func switchServer(to address: String) async {
         let parsed = AppModel.splitAddress(address, fallbackPort: port)
         guard !parsed.host.isEmpty else { return }
+        // Everything here is plain http, so the address has to be one of the
+        // networks that is private by construction: the tailnet the proxy binds
+        // to, a LAN, or this machine.
+        guard AppModel.isPrivateHost(parsed.host) else {
+            report("\(parsed.host) is not a tailnet, LAN or loopback address, so it will not be reached over plain http")
+            return
+        }
         guard parsed.host != host || parsed.port != port else { return }
-        socket?.stop()
-        socket = nil
+        closeSocket()
+        clearSessionState()
         sessions = []
         selected = nil
-        items = []
         projectionSnapshots = [:]
         hostCwd = ""
         serverState = .idle
         host = parsed.host
         port = parsed.port
+        client.accessToken = AppModel.accessToken(forHost: parsed.host, port: parsed.port)
         UserDefaults.standard.set(parsed.host, forKey: "dsh.host")
         UserDefaults.standard.set(parsed.port, forKey: "dsh.port")
         await connect()
     }
 
+    // Everything on screen that belongs to one session and nothing that belongs
+    // to the connection. Switching sessions and switching machines both need
+    // exactly this set, which is why it stopped being written out twice.
+    private func clearSessionState() {
+        items = []
+        appendedIDs = []
+        toolIndex = [:]
+        stats = SessionStats()
+        running = false
+        streamState.clear()
+        queueItems = []
+        contextPressure = nil
+        goal = nil
+        jobs = []
+        subagents = []
+        subagentSheet = nil
+        subagentHistory = []
+        pendingImages = []
+        permission = nil
+        recoveredHistory = false
+        attachmentImages = [:]
+        attachmentFetches = []
+        droppedToolResults = 0
+        historyLoading = nil
+        bufferedFrames = []
+    }
+
+    private func closeSocket() {
+        socket?.stop()
+        socket = nil
+        frameContinuation?.finish()
+        frameContinuation = nil
+        frameConsumer?.cancel()
+        frameConsumer = nil
+    }
+
+    // Two overlapping connects would each decide the port is empty and each
+    // start a server on it, so a second caller waits for the first instead.
     func connect() async {
+        if let running = connectTask {
+            return await running.value
+        }
+        let task = Task { @MainActor in await performConnect() }
+        connectTask = task
+        await task.value
+        connectTask = nil
+    }
+
+    private func performConnect() async {
         client.host = host
         client.port = port
+        client.accessToken = accessToken
         serverState = .connecting
         for attempt in 0..<3 {
             if await probe() {
@@ -422,7 +551,11 @@ final class AppModel: ObservableObject {
         // silent server is the end of the road, so say so instead of stalling.
         #if os(macOS)
         serverState = .launching
-        if server.wakeAgent() {
+        // A launchd agent owns the port for as long as it is installed. Falling
+        // through to our own child after waking it is how two servers end up
+        // fighting over 3080, so a slow agent fails loudly instead.
+        switch server.wakeAgent() {
+        case .woken:
             for _ in 0..<40 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if await probe() {
@@ -430,10 +563,20 @@ final class AppModel: ObservableObject {
                     return
                 }
             }
+            AppModel.log.error("launchd agent woke but never answered on \(self.port, privacy: .public)")
+            serverState = .failed("The dsh launchd agent was woken but never answered on port \(port). See \(server.agentLogPath).")
+            return
+        case .failed(let reason):
+            AppModel.log.error("launchctl kickstart failed: \(reason, privacy: .public)")
+            serverState = .failed("Could not start the dsh launchd agent: \(reason)")
+            return
+        case .notInstalled:
+            break
         }
         do {
             try server.launch()
         } catch {
+            AppModel.log.error("dsh launch failed: \(error.localizedDescription, privacy: .public)")
             serverState = .failed("failed to launch dsh: \(error.localizedDescription)")
             return
         }
@@ -494,7 +637,14 @@ final class AppModel: ObservableObject {
     ]
 
     private func loadPresets() async {
-        guard let value = (try? await client.call("agentPreset.list")) as? [String: Any] else { return }
+        let value: [String: Any]
+        do {
+            guard let answer = try await client.call("agentPreset.list") as? [String: Any] else { return }
+            value = answer
+        } catch {
+            report("preset list failed", error: error)
+            return
+        }
         presetOptions = (value["presets"] as? [[String: Any]] ?? []).compactMap { p in
             guard let pid = p["id"] as? String, p["broken"] == nil else { return nil }
             let shipped = (p["trust"] as? String) == "system" ? AppModel.shippedPresetCopy[pid] : nil
@@ -588,8 +738,20 @@ final class AppModel: ObservableObject {
         }
 
         var rows: [CredentialRow] = []
-        if let value = try? await client.call("credentials.describe", ["refs": refs]) as? [String: Any],
-           let creds = value["credentials"] as? [String: Any] {
+        let described: [String: Any]?
+        do {
+            let value = try await client.call("credentials.describe", ["refs": refs]) as? [String: Any]
+            described = value?["credentials"] as? [String: Any]
+        } catch {
+            // Falling back to the built-in list here would draw every key as
+            // unconfigured and writable, which is a claim about the machine
+            // rather than an admission that the question went unanswered.
+            AppModel.log.error("credentials.describe failed: \(error.localizedDescription, privacy: .public)")
+            settingsNotice = "Could not read the credential state: \(error.localizedDescription)"
+            credentialsReadable = false
+            return
+        }
+        if let creds = described {
             for ref in refs {
                 let info = creds[ref] as? [String: Any]
                 let meta = labels[ref] ?? (ref, "")
@@ -605,6 +767,7 @@ final class AppModel: ObservableObject {
         } else {
             rows = AppModel.knownCredentials
         }
+        credentialsReadable = true
         credentialRows = rows
     }
 
@@ -668,12 +831,21 @@ final class AppModel: ObservableObject {
                     "ns": "agent-default-model",
                     "patch": ["provider": prov, "model": mdl],
                 ]
-                if let rev = defaultModelRevision { payload["revision"] = rev }
+                // The schema calls this expectedRevision; sending `revision`
+                // means the unknown key is stripped and the conflict check the
+                // token exists for never runs.
+                if let rev = defaultModelRevision { payload["expectedRevision"] = rev }
                 _ = try await client.call("settings.update", payload)
                 settingsNotice = "Default model saved"
                 await loadSettings()
             } catch {
-                settingsNotice = "Could not save default model: \(error.localizedDescription)"
+                if (error as? DshError)?.code == "settings-conflict" {
+                    settingsNotice = "Someone else changed the default model, reloading"
+                    await loadSettings()
+                } else {
+                    AppModel.log.error("settings.update failed: \(error.localizedDescription, privacy: .public)")
+                    settingsNotice = "Could not save default model: \(error.localizedDescription)"
+                }
             }
             settingsBusy = false
         }
@@ -689,16 +861,36 @@ final class AppModel: ObservableObject {
     }
 
     func refreshSessions() async {
-        guard let value = (try? await client.call("session.list")) as? [String: Any],
-              let list = value["items"] as? [[String: Any]] else { return }
+        let stamp = "\(host):\(port)"
+        let value: [String: Any]
+        do {
+            guard let answer = try await client.call("session.list") as? [String: Any] else {
+                report("the session list came back in an unexpected shape")
+                return
+            }
+            value = answer
+        } catch {
+            report("session list failed", error: error)
+            return
+        }
+        // A reply that arrives after the app moved to another machine describes
+        // sessions that are no longer on screen.
+        guard stamp == "\(host):\(port)" else { return }
+        guard let list = value["items"] as? [[String: Any]] else { return }
+        #if os(macOS)
+        // The server keeps a session it has already loaded in memory, so its
+        // list can still name one whose folder is gone. On this machine the
+        // folder is the truth; against a server elsewhere there is nothing to
+        // check. Reading the tree once beats one walk per row.
+        let onDisk = serverIsLocal ? AppModel.sessionIDsOnDisk() : nil
+        #endif
         sessions = list.compactMap { item in
-            guard let id = item["sessionId"] as? String else { return nil }
+            guard let id = item["sessionId"] as? String, SessionID.isSafe(id) else { return nil }
+            // A blank session is one dsh made and nobody has written in; it is
+            // furniture, not history.
+            if item["blank"] as? Bool == true, id != selected { return nil }
             #if os(macOS)
-            // The server keeps a session it has already loaded in memory, so its
-            // list can still name one whose folder is gone. On this machine the
-            // folder is the truth; against a server elsewhere there is nothing
-            // to check.
-            if serverIsLocal, AppModel.sessionFolder(for: id) == nil { return nil }
+            if let onDisk, !onDisk.contains(id) { return nil }
             #endif
             let values = (item["projections"] as? [String: Any])?["values"] as? [String: Any]
             if let values { projectionSnapshots[id] = values }
@@ -726,24 +918,10 @@ final class AppModel: ObservableObject {
     func select(_ id: String) async {
         selected = id
         lastError = nil
-        items = []
-        appendedIDs = []
-        toolIndex = [:]
-        stats = SessionStats()
-        running = false
-        streamState.clear()
-        queueItems = []
-        contextPressure = nil
-        goal = nil
-        jobs = []
-        subagents = []
-        subagentSheet = nil
-        subagentHistory = []
-        pendingImages = []
-        permission = nil
-        recoveredHistory = false
-        attachmentImages = [:]
-        attachmentFetches = []
+        clearSessionState()
+        composer = promptDrafts[id]?.text ?? ""
+        pendingImages = promptDrafts[id]?.images ?? []
+        historyLoading = id
         agentPreset = sessions.first(where: { $0.id == id })?.agentPreset
         if let snapshot = projectionSnapshots[id] {
             applyProjection(key: "tokenUsage", value: snapshot["tokenUsage"] ?? [:])
@@ -756,11 +934,26 @@ final class AppModel: ObservableObject {
         let generation = loadGeneration
         await loadModels(id, generation: generation)
         await loadHistory(id, generation: generation)
+        guard generation == loadGeneration else { return }
+        // The socket kept delivering while the backlog was being fetched. Those
+        // frames belong after it, so they are replayed here rather than landing
+        // in an empty trajectory and then being overwritten by history.
+        historyLoading = nil
+        let buffered = bufferedFrames
+        bufferedFrames = []
+        for frame in buffered { handle(frame: frame) }
         refreshSubagents()
     }
 
     private func loadModels(_ id: String, generation: Int) async {
-        guard let value = (try? await client.call("session.models", ["sessionId": id])) as? [String: Any] else { return }
+        let value: [String: Any]
+        do {
+            guard let answer = try await client.call("session.models", ["sessionId": id]) as? [String: Any] else { return }
+            value = answer
+        } catch {
+            if generation == loadGeneration { report("model list failed", error: error) }
+            return
+        }
         guard generation == loadGeneration else { return }
         if let current = value["current"] as? [String: Any] {
             provider = current["provider"] as? String ?? provider
@@ -839,6 +1032,10 @@ final class AppModel: ObservableObject {
                     reduce(event: event, live: false)
                 }
             }
+            // The server answers with a page, not the whole transcript, so a
+            // long session opens part way in. Saying it beats letting the top of
+            // the view read as the beginning.
+            historyTruncated = (value as? [String: Any])?["hasMore"] as? Bool ?? false
         } catch {
             await loadHistoryFromDisk(id, generation: generation, reason: error.localizedDescription)
         }
@@ -848,21 +1045,27 @@ final class AppModel: ObservableObject {
     // only the machine hosting it can reach.
     private func loadHistoryFromDisk(_ id: String, generation: Int, reason: String) async {
         #if os(macOS)
-        let events = await Task.detached(priority: .userInitiated) {
+        let outcome = await Task.detached(priority: .userInitiated) {
             SessionLogReader.events(for: id)
         }.value
         #else
-        let events: [[String: Any]] = []
+        let outcome: Result<[[String: Any]], NSError> = .failure(
+            NSError(domain: "dsh", code: 0, userInfo: [NSLocalizedDescriptionKey: "the phone cannot read the server's disk"])
+        )
         #endif
         guard generation == loadGeneration else { return }
-        guard !events.isEmpty else {
-            report("history load failed: \(reason)")
-            return
+        switch outcome {
+        case .success(let events):
+            for event in events {
+                reduce(event: event, live: false)
+            }
+            recoveredHistory = true
+        case .failure(let salvage):
+            // Two different things failed, and reporting only the server's
+            // reason used to hide which one the user could do anything about.
+            AppModel.log.error("salvage read failed: \(salvage.localizedDescription, privacy: .public)")
+            report("history load failed: \(reason). Reading the log directly also failed: \(salvage.localizedDescription)")
         }
-        for event in events {
-            reduce(event: event, live: false)
-        }
-        recoveredHistory = true
     }
 
     // Typing while the agent works means "take this into account now", the way
@@ -883,6 +1086,7 @@ final class AppModel: ObservableObject {
         if !text.isEmpty {
             content.append(["type": "text", "text": text])
         }
+        promptDrafts[sessionId] = nil
         Task {
             do {
                 _ = try await client.call("session.prompt", [
@@ -891,9 +1095,15 @@ final class AppModel: ObservableObject {
                     "content": content,
                 ])
             } catch {
-                report("send failed: \(error.localizedDescription)")
-                if composer.isEmpty { composer = text }
-                if pendingImages.isEmpty { pendingImages = images }
+                report("send failed", error: error)
+                // The user may have moved on while this was in flight, so the
+                // text goes back to the session it was written for and only
+                // reappears in the box if that session is still on screen.
+                promptDrafts[sessionId] = (text: text, images: images)
+                if selected == sessionId {
+                    if composer.isEmpty { composer = text }
+                    if pendingImages.isEmpty { pendingImages = images }
+                }
             }
         }
     }
@@ -1040,7 +1250,9 @@ final class AppModel: ObservableObject {
               attachmentImages[attachmentId] == nil,
               !attachmentFetches.contains(attachmentId) else { return }
         attachmentFetches.insert(attachmentId)
+        let generation = loadGeneration
         Task {
+            guard generation == loadGeneration else { return }
             do {
                 let value = try await client.call("session.attachment", [
                     "sessionId": sessionId,
@@ -1175,7 +1387,9 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             if Task.isCancelled { return }
             do {
-                let value = try await client.call("session.search", ["query": query]) as? [String: Any]
+                let value = try await client.call("session.search", [
+                    "query": String(query.prefix(500)),
+                ]) as? [String: Any]
                 guard query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
                 var results: [String: String] = [:]
                 for item in value?["items"] as? [[String: Any]] ?? [] {
@@ -1184,10 +1398,12 @@ final class AppModel: ObservableObject {
                     }
                 }
                 searchResults = results
+                searchTruncated = value?["hasMore"] as? Bool ?? false
             } catch {
-                if query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    searchResults = [:]
-                }
+                guard query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+                // Emptying the list here would say the search found nothing,
+                // which is a different answer from the search not running.
+                report("search failed", error: error)
             }
         }
     }
@@ -1241,12 +1457,33 @@ final class AppModel: ObservableObject {
 
     var serverIsLocal: Bool { host == "127.0.0.1" || host == "localhost" }
 
+    static var sessionsRoot: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".dsh/sessions")
+    }
+
+    static func sessionIDsOnDisk() -> Set<String> {
+        let manager = FileManager.default
+        guard let projects = try? manager.contentsOfDirectory(at: sessionsRoot, includingPropertiesForKeys: nil) else { return [] }
+        var found: Set<String> = []
+        for project in projects {
+            for entry in (try? manager.contentsOfDirectory(atPath: project.path)) ?? [] {
+                found.insert(entry)
+            }
+        }
+        return found
+    }
+
+    // The id comes from the server and is about to become a path component, so
+    // it is checked for shape and the result is checked for containment. An id
+    // of "../.." would otherwise resolve to a directory nobody meant to name.
     static func sessionFolder(for id: String) -> URL? {
-        let root = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".dsh/sessions")
+        guard SessionID.isSafe(id) else { return nil }
+        let root = sessionsRoot.standardizedFileURL
         let manager = FileManager.default
         guard let projects = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return nil }
         for project in projects {
-            let candidate = project.appendingPathComponent(id)
+            let candidate = project.appendingPathComponent(id).standardizedFileURL
+            guard candidate.path.hasPrefix(root.path + "/") else { continue }
             if manager.fileExists(atPath: candidate.path) { return candidate }
         }
         return nil
@@ -1254,7 +1491,9 @@ final class AppModel: ObservableObject {
     #endif
 
     func fork(_ session: SessionRow) {
+        guard inFlightSessionCalls.insert("fork:\(session.id)").inserted else { return }
         Task {
+            defer { inFlightSessionCalls.remove("fork:\(session.id)") }
             do {
                 let value = try await client.call("session.fork", ["sessionId": session.id]) as? [String: Any]
                 await refreshSessions()
@@ -1281,17 +1520,23 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // The card used to disappear the moment it was clicked, so a failed send
+    // left the agent waiting on an answer with nothing left on screen to give
+    // it. It now leaves only when the server has actually taken the answer.
     func respond(to approval: ApprovalRequest, outcome: String) {
-        approvals.removeAll { $0.id == approval.id }
+        guard !inFlightApprovals.contains(approval.id) else { return }
+        inFlightApprovals.insert(approval.id)
         Task {
+            defer { inFlightApprovals.remove(approval.id) }
             do {
                 try await client.respond(rpcId: approval.rpcId, value: [
                     "sessionId": approval.sessionId,
                     "approvalId": approval.id,
                     "outcome": outcome,
                 ])
+                approvals.removeAll { $0.id == approval.id }
             } catch {
-                report("approval response failed: \(error.localizedDescription)")
+                report("approval response failed", error: error)
             }
         }
     }
@@ -1313,6 +1558,14 @@ final class AppModel: ObservableObject {
     #endif
 
     func createSession(cwd: String) async {
+        guard inFlightSessionCalls.insert("create:\(cwd)").inserted else { return }
+        defer { inFlightSessionCalls.remove("create:\(cwd)") }
+        // dsh keeps a blank session per directory; opening the same folder twice
+        // should land in that one rather than leaving a trail of empty rows.
+        if let existing = sessions.first(where: { $0.cwd == cwd && $0.turns == 0 }) {
+            await select(existing.id)
+            return
+        }
         do {
             let value = try await client.call("session.create", ["cwd": cwd]) as? [String: Any]
             await refreshSessions()
@@ -1328,9 +1581,7 @@ final class AppModel: ObservableObject {
     }
 
     private func openSocket() {
-        socket?.stop()
-        frameContinuation?.finish()
-        frameConsumer?.cancel()
+        closeSocket()
         guard let wsURL = URL(string: "ws://\(host):\(port)/api/events.mux") else { return }
         let (stream, continuation) = AsyncStream.makeStream(of: [String: Any].self)
         frameContinuation = continuation
@@ -1339,19 +1590,33 @@ final class AppModel: ObservableObject {
                 self?.handle(frame: frame)
             }
         }
-        let s = EventSocket(url: wsURL) { frame in
+        let socket = EventSocket(url: wsURL, accessToken: accessToken) { frame in
             continuation.yield(frame)
-        } onState: { [weak self] up in
+        } onState: { [weak self] up, reason in
             Task { @MainActor in
-                self?.wsConnected = up
-                if !up { self?.scheduleReconnect() }
+                guard let self else { return }
+                self.wsConnected = up
+                guard !up else { return }
+                if let reason {
+                    AppModel.log.error("event stream dropped: \(reason, privacy: .public)")
+                }
+                self.scheduleReconnect()
             }
         }
-        socket = s
-        s.start()
+        self.socket = socket
+        socket.start()
     }
 
     private func handle(frame: [String: Any]) {
+        if let loading = historyLoading {
+            let payload = frame["payload"] as? [String: Any]
+            if payload?["sessionId"] as? String == loading {
+                // Reducing this now would put it before the history it follows,
+                // and the history load would then overwrite it.
+                if bufferedFrames.count < 2000 { bufferedFrames.append(frame) }
+                return
+            }
+        }
         guard let payload = frame["payload"] as? [String: Any] else { return }
         let kind = payload["type"] as? String ?? ""
         let sessionId = payload["sessionId"] as? String ?? ""
@@ -1439,12 +1704,15 @@ final class AppModel: ObservableObject {
     }
 
     func skipQuestion(_ request: QuestionRequest) {
-        questions.removeAll { $0.rpcId == request.rpcId }
+        guard !inFlightQuestions.contains(request.rpcId) else { return }
+        inFlightQuestions.insert(request.rpcId)
         Task {
+            defer { inFlightQuestions.remove(request.rpcId) }
             do {
                 try await client.cancel(rpcId: request.rpcId, reason: "the user skipped this question")
+                questions.removeAll { $0.rpcId == request.rpcId }
             } catch {
-                report("skip failed: \(error.localizedDescription)")
+                report("skip failed", error: error)
             }
         }
     }
@@ -1454,8 +1722,10 @@ final class AppModel: ObservableObject {
     // text, and for a single-answer question either a selection or custom text
     // but never both. Anything else comes back as bad-response.
     func answerQuestion(_ request: QuestionRequest, selections: [String: Set<String>], custom: [String: String]) {
-        questions.removeAll { $0.rpcId == request.rpcId }
+        guard !inFlightQuestions.contains(request.rpcId) else { return }
+        inFlightQuestions.insert(request.rpcId)
         Task {
+            defer { inFlightQuestions.remove(request.rpcId) }
             do {
                 let answers: [[String: Any]] = request.items.map { item in
                     let typed = (custom[item.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1476,8 +1746,9 @@ final class AppModel: ObservableObject {
                     "sessionId": request.sessionId,
                     "answer": ["answers": answers],
                 ])
+                questions.removeAll { $0.rpcId == request.rpcId }
             } catch {
-                report("answer failed: \(error.localizedDescription)")
+                report("answer failed", error: error)
             }
         }
     }
@@ -1586,13 +1857,34 @@ final class AppModel: ObservableObject {
 
     private func appendItem(_ item: TrajectoryItem) {
         guard appendedIDs.insert(item.id).inserted else { return }
-        items.append(item)
+        items.append(AppModel.clamped(item))
         if case .tool = item { toolIndex[item.id] = items.count - 1 }
+    }
+
+    // A single message can be enormous, and every one of them is held for as
+    // long as the session stays open, twice over once markdown has parsed it.
+    private static let messageCap = 40_000
+
+    private static func clamped(_ item: TrajectoryItem) -> TrajectoryItem {
+        switch item {
+        case .assistant(let id, let text) where text.count > messageCap:
+            return .assistant(id: id, text: String(text.prefix(messageCap)) + "\n\n…")
+        case .thinking(let id, let text) where text.count > messageCap:
+            return .thinking(id: id, text: String(text.prefix(messageCap)) + "\n\n…")
+        case .user(let id, let text, let images) where text.count > messageCap:
+            return .user(id: id, text: String(text.prefix(messageCap)) + "\n\n…", images: images)
+        default:
+            return item
+        }
     }
 
     private func updateTool(id: String, status: ToolStatus, appending: String) {
         guard let idx = toolIndex[id], idx < items.count,
-              case .tool(let tid, let name, let title, let detail, _) = items[idx], tid == id else { return }
+              case .tool(let tid, let name, let title, let detail, _) = items[idx], tid == id else {
+            droppedToolResults += 1
+            AppModel.log.debug("tool result with no card: \(id, privacy: .public)")
+            return
+        }
         let merged = appending.isEmpty ? detail : detail + "\n\n" + appending
         items[idx] = .tool(id: tid, name: name, title: title, detail: String(merged.prefix(4000)), status: status)
     }
@@ -1662,8 +1954,19 @@ final class AppModel: ObservableObject {
     // A failure belongs to the moment it happened, so it fades on its own and
     // whenever the session moves on. Otherwise it outlives its context and
     // reads as a fault in whatever the user is doing now.
-    private func report(_ message: String) {
-        lastError = message
+    private func report(_ message: String, error: Error? = nil) {
+        var shown = message
+        if let error {
+            shown = "\(message): \(error.localizedDescription)"
+            if let rpcId = (error as? DshError)?.rpcId {
+                AppModel.log.error("\(message, privacy: .public) [\(rpcId, privacy: .public)]: \(error.localizedDescription, privacy: .public)")
+            } else {
+                AppModel.log.error("\(message, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        } else {
+            AppModel.log.error("\(message, privacy: .public)")
+        }
+        lastError = shown
         errorGeneration += 1
         let generation = errorGeneration
         Task { @MainActor in

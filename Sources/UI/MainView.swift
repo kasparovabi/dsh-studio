@@ -16,6 +16,18 @@ struct MainView: View {
             if app.recoveredHistory {
                 RecoveredBanner()
             }
+            if app.historyTruncated {
+                NoticeBanner(
+                    glyph: "text.line.first.and.arrowtriangle.forward",
+                    text: "The server sent the most recent part of this transcript. Earlier turns are on disk but not on screen."
+                )
+            }
+            if app.droppedToolResults > 0 {
+                NoticeBanner(
+                    glyph: "questionmark.square.dashed",
+                    text: "\(app.droppedToolResults) tool result\(app.droppedToolResults == 1 ? "" : "s") arrived with no matching card and were not shown."
+                )
+            }
             StatsRow()
             if let goal = app.goal {
                 GoalCard(goal: goal)
@@ -36,6 +48,32 @@ struct MainView: View {
             }
             ComposerView()
         }
+    }
+}
+
+// The banners all say the same kind of thing: something is missing from what
+// you are looking at, and here is why.
+struct NoticeBanner: View {
+    let glyph: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: glyph)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentOrange)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.inkSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.accentOrange.opacity(0.10))
+        )
     }
 }
 
@@ -652,9 +690,9 @@ struct TopBar: View {
 
     private var modelMenu: some View {
         Menu {
-            ForEach(groupedProviders, id: \.self) { providerName in
-                Section(providerName) {
-                    ForEach(app.modelOptions.filter { $0.providerName == providerName }) { option in
+            ForEach(groupedProviders, id: \.name) { group in
+                Section(group.name) {
+                    ForEach(group.options) { option in
                         Button(option.modelName) {
                             app.selectModel(option)
                         }
@@ -680,12 +718,14 @@ struct TopBar: View {
         .fixedSize()
     }
 
-    private var groupedProviders: [String] {
-        var seen: [String] = []
-        for option in app.modelOptions where !seen.contains(option.providerName) {
-            seen.append(option.providerName)
+    private var groupedProviders: [(name: String, options: [ModelOption])] {
+        var order: [String] = []
+        var byProvider: [String: [ModelOption]] = [:]
+        for option in app.modelOptions {
+            if byProvider[option.providerName] == nil { order.append(option.providerName) }
+            byProvider[option.providerName, default: []].append(option)
         }
-        return seen
+        return order.map { (name: $0, options: byProvider[$0] ?? []) }
     }
 }
 

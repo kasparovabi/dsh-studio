@@ -6,18 +6,26 @@
 	<string>com.kasparov.dsh-tailnet-proxy</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/opt/homebrew/bin/node</string>
+		<string>/usr/bin/env</string>
+		<string>node</string>
 		<string>REPLACE_WITH_CHECKOUT_PATH/scripts/tailnet-proxy.js</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
 	<true/>
 	<key>ThrottleInterval</key>
 	<integer>15</integer>
+	<!-- The log names every peer that connects, so it belongs in the user's own
+	     Logs directory rather than in the world-readable temp directory. -->
 	<key>StandardOutPath</key>
-	<string>/tmp/dshproxy.log</string>
+	<string>REPLACE_WITH_HOME/Library/Logs/dsh-tailnet-proxy.log</string>
 	<key>StandardErrorPath</key>
-	<string>/tmp/dshproxy.log</string>
+	<string>REPLACE_WITH_HOME/Library/Logs/dsh-tailnet-proxy.log</string>
 </dict>
 </plist>

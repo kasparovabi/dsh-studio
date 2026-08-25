@@ -73,7 +73,7 @@ struct AssistantMarkdown: View {
     }
 
     private func inlineMarkdown(_ source: String) -> AttributedString {
-        MarkdownParser.inline(source)
+        MarkdownParser.cachedInline(source)
     }
 }
 

@@ -13,11 +13,21 @@ if pgrep -f "/Applications/DSH Studio.app/Contents/MacOS/DshStudio" > /dev/null;
   exit 1
 fi
 
+command -v xcodegen > /dev/null || {
+  echo "xcodegen is not on PATH. brew install xcodegen, then run this again." >&2
+  exit 1
+}
+
 # The signing file names a real developer team, so it is not in the tree. A
 # fresh checkout gets the placeholder copy and still builds ad-hoc.
 [ -f "$ROOT/Signing.xcconfig" ] || cp "$ROOT/Signing.example.xcconfig" "$ROOT/Signing.xcconfig"
 
-xcodegen generate --project "$ROOT" > /dev/null
+# The phone spec is a superset and is the one to use when it is present, so
+# generating for the Mac does not silently drop the phone target from the
+# project the other script just wrote.
+SPEC="project.yml"
+[ -f "$ROOT/project.phone.yml" ] && SPEC="project.phone.yml"
+(cd "$ROOT" && xcodegen generate --spec "$SPEC" > /dev/null)
 xcodebuild -project "$ROOT/DshStudio.xcodeproj" \
   -scheme DshStudio \
   -configuration Release \
@@ -27,6 +37,11 @@ xcodebuild -project "$ROOT/DshStudio.xcodeproj" \
 BUILT="$DERIVED/Build/Products/Release/DshStudio.app"
 [ -d "$BUILT" ] || { echo "no build product at $BUILT" >&2; exit 1; }
 
+# The old bundle is only removed once its replacement is sitting next to it,
+# so a failed copy leaves the installed app intact.
+STAGE="$TARGET.new"
+rm -rf "$STAGE"
+cp -R "$BUILT" "$STAGE"
 rm -rf "$TARGET"
-cp -R "$BUILT" "$TARGET"
+mv "$STAGE" "$TARGET"
 echo "installed $TARGET"
