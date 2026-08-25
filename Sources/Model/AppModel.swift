@@ -682,6 +682,13 @@ final class AppModel: ObservableObject {
               let list = value["items"] as? [[String: Any]] else { return }
         sessions = list.compactMap { item in
             guard let id = item["sessionId"] as? String else { return nil }
+            #if os(macOS)
+            // The server keeps a session it has already loaded in memory, so its
+            // list can still name one whose folder is gone. On this machine the
+            // folder is the truth; against a server elsewhere there is nothing
+            // to check.
+            if serverIsLocal, AppModel.sessionFolder(for: id) == nil { return nil }
+            #endif
             let values = (item["projections"] as? [String: Any])?["values"] as? [String: Any]
             if let values { projectionSnapshots[id] = values }
             var title = values?["title"] as? String
@@ -1211,6 +1218,8 @@ final class AppModel: ObservableObject {
             if selected == nil, let first = sessions.first { await select(first.id) }
         }
     }
+
+    var serverIsLocal: Bool { host == "127.0.0.1" || host == "localhost" }
 
     static func sessionFolder(for id: String) -> URL? {
         let root = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".dsh/sessions")
