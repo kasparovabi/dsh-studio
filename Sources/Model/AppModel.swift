@@ -943,12 +943,7 @@ final class AppModel: ObservableObject {
                         self?.report("could not read \(url.lastPathComponent)")
                         continue
                     }
-                    self?.pendingImages.append(PendingImage(
-                        name: url.lastPathComponent,
-                        mediaType: mediaType,
-                        data: data,
-                        preview: PlatformImage(data: data)
-                    ))
+                    self?.addPendingImage(name: url.lastPathComponent, mediaType: mediaType, data: data)
                 }
             }
         }
@@ -1008,34 +1003,19 @@ final class AppModel: ObservableObject {
                     handled = true
                     continue
                 }
-                pendingImages.append(PendingImage(
-                    name: url.lastPathComponent,
-                    mediaType: type,
-                    data: data,
-                    preview: PlatformImage(data: data)
-                ))
+                addPendingImage(name: url.lastPathComponent, mediaType: type, data: data)
                 handled = true
             }
             if handled { return true }
         }
         if let data = pasteboard.data(forType: .png) {
-            pendingImages.append(PendingImage(
-                name: "Pasted image.png",
-                mediaType: "image/png",
-                data: data,
-                preview: PlatformImage(data: data)
-            ))
+            addPendingImage(name: "Pasted image.png", mediaType: "image/png", data: data)
             return true
         }
         // A screenshot lands as TIFF, which no provider accepts, so re-encode it.
         if let tiff = pasteboard.data(forType: .tiff),
            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-            pendingImages.append(PendingImage(
-                name: "Pasted image.png",
-                mediaType: "image/png",
-                data: png,
-                preview: PlatformImage(data: png)
-            ))
+            addPendingImage(name: "Pasted image.png", mediaType: "image/png", data: png)
             return true
         }
         return false
