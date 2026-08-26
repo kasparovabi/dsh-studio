@@ -586,7 +586,7 @@ final class AppModel: ObservableObject {
         // of the road, so say so instead of starting one nobody asked for.
         #if os(macOS)
         guard serverIsLocal else {
-            serverState = .failed("No dsh server answered at \(host):\(port)")
+            serverState = .failed("No dsh server answered at \(host):\(port)\n\(probeFailure)")
             return
         }
         serverState = .launching

@@ -18,8 +18,12 @@ targets:
       properties:
         CFBundleDisplayName: DSH Studio
         CFBundleIconFile: AppIcon
+        # A tailnet address sits in 100.64.0.0/10, which local networking does
+        # not cover on macOS, so plain http to another machine is refused before
+        # the request leaves the app. Which addresses may be reached is decided
+        # in code instead, by AppModel.isPrivateHost.
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
         LSApplicationCategoryType: public.app-category.developer-tools
     settings:
       base:
