@@ -547,9 +547,14 @@ final class AppModel: ObservableObject {
             }
             if attempt < 2 { try? await Task.sleep(nanoseconds: 300_000_000) }
         }
-        // Only the machine running the server can start one. From the phone a
-        // silent server is the end of the road, so say so instead of stalling.
+        // Only the machine running the server can start one. From the phone, or
+        // from here while talking to another machine, a silent server is the end
+        // of the road, so say so instead of starting one nobody asked for.
         #if os(macOS)
+        guard serverIsLocal else {
+            serverState = .failed("No dsh server answered at \(host):\(port)")
+            return
+        }
         serverState = .launching
         // A launchd agent owns the port for as long as it is installed. Falling
         // through to our own child after waking it is how two servers end up

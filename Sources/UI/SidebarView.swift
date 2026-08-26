@@ -29,6 +29,7 @@ struct BucketHeader: View {
 }
 
 struct SidebarView: View {
+    @State private var showingServers = false
     @EnvironmentObject var app: AppModel
     @State private var deleteTarget: SessionRow?
 
@@ -226,18 +227,37 @@ struct SidebarView: View {
                 .resizable()
                 .frame(width: 34, height: 34)
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("DSH Studio")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.inkPrimary)
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 7, height: 7)
-                    Text(statusText)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.inkSecondary)
+            // The name of the machine being talked to, and the way to change it.
+            // A session runs where its files are, so which machine is answering
+            // is part of what the header was already reporting.
+            Button {
+                showingServers = true
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(app.serverName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.inkPrimary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Color.inkSecondary)
+                    }
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 7, height: 7)
+                        Text(statusText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.inkSecondary)
+                    }
                 }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingServers, arrowEdge: .bottom) {
+                ServersView { showingServers = false }
+                    .environmentObject(app)
             }
             Spacer()
         }
