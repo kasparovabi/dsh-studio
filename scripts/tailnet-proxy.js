@@ -52,7 +52,11 @@ function readToken() {
         `  mkdir -p ~/.dsh && openssl rand -hex 32 > ${TOKEN_FILE} && chmod 600 ${TOKEN_FILE}`
     );
   }
-  if (stat.mode & 0o077) throw new Error(`${TOKEN_FILE} is group or world readable, chmod 600 it`);
+  // Windows has no POSIX mode: statSync reports a fabricated 0o666 there, which
+  // reads as world readable and would refuse every key on that machine.
+  if (process.platform !== "win32" && stat.mode & 0o077) {
+    throw new Error(`${TOKEN_FILE} is group or world readable, chmod 600 it`);
+  }
   const value = fs.readFileSync(TOKEN_FILE, "utf8").trim();
   if (value.length < 32) throw new Error(`${TOKEN_FILE} is too short to be a key`);
   return value;
