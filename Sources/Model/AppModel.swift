@@ -314,6 +314,7 @@ final class AppModel: ObservableObject {
     private var toolIndex: [String: Int] = [:]
     private var searchTask: Task<Void, Never>?
     private var sessionsRefreshTask: Task<Void, Never>?
+    private var sessionsHeartbeat: Task<Void, Never>?
     private var frameConsumer: Task<Void, Never>?
     private var frameContinuation: AsyncStream<[String: Any]>.Continuation?
 
@@ -436,6 +437,7 @@ final class AppModel: ObservableObject {
 
     func bootstrap() {
         applyBundledServers()
+        startSessionsHeartbeat()
         guard serverState == .idle else { return }
         Task { await connect() }
     }
@@ -885,6 +887,20 @@ final class AppModel: ObservableObject {
                 }
             }
             settingsBusy = false
+        }
+    }
+
+    // Every other refresh hangs off an event, so a row whose event was dropped
+    // or replayed stays wrong until the app is restarted. This heals it.
+    private func startSessionsHeartbeat() {
+        sessionsHeartbeat?.cancel()
+        sessionsHeartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                guard await self.serverState == .ready else { continue }
+                await self.refreshSessions()
+            }
         }
     }
 
@@ -1469,6 +1485,13 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 _ = try await client.call("session.rename", ["sessionId": target.id, "title": title])
+                // The row is written here rather than waited for. A refresh that
+                // fails, or a list reply that arrives before the server has the
+                // new name, would otherwise leave the old title on screen with
+                // nothing to correct it.
+                if let index = sessions.firstIndex(where: { $0.id == target.id }) {
+                    sessions[index].title = title
+                }
                 await refreshSessions()
             } catch {
                 report("rename failed: \(error.localizedDescription)")
@@ -1852,7 +1875,10 @@ final class AppModel: ObservableObject {
             }
             if live { refreshSubagents() }
         case "session/title":
-            if live { scheduleSessionsRefresh() }
+            // Also when this arrives as a replayed frame. The title of a session
+            // renamed while its history was loading is only carried by the
+            // buffer, and a row that misses it keeps the name it was born with.
+            scheduleSessionsRefresh()
         case "tool/call":
             let callId = data["callId"] as? String ?? id
             let name = data["name"] as? String ?? "tool"
