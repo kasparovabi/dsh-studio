@@ -435,8 +435,40 @@ final class AppModel: ObservableObject {
     }
 
     func bootstrap() {
+        applyBundledServers()
         guard serverState == .idle else { return }
         Task { await connect() }
+    }
+
+    // A build can carry the machines it is meant to reach, so a fresh install
+    // connects instead of asking for an address and a key on a phone keyboard.
+    // The entries live in the Info.plist under DshSeedServers, which the public
+    // project spec does not define: without them this does nothing. A key
+    // already stored on the device wins, so editing one by hand is not undone
+    // on the next launch.
+    private func applyBundledServers() {
+        guard let seeds = Bundle.main.object(forInfoDictionaryKey: "DshSeedServers") as? [[String: String]] else { return }
+        var known = savedServers
+        var first: String?
+        for seed in seeds {
+            guard let address = seed["host"], !address.isEmpty else { continue }
+            let parsed = AppModel.splitAddress(address, fallbackPort: port)
+            guard AppModel.isPrivateHost(parsed.host) else { continue }
+            if first == nil { first = address }
+            if !known.contains(where: { $0.host == address }) {
+                known.append(SavedServer(name: seed["name"] ?? parsed.host, host: address))
+            }
+            if let key = seed["key"], !key.isEmpty,
+               AppModel.accessToken(forHost: parsed.host, port: parsed.port).isEmpty {
+                AppModel.setAccessToken(key, forHost: parsed.host, port: parsed.port)
+            }
+        }
+        guard known.count != savedServers.count else { return }
+        savedServers = known
+        // On a fresh install the address in hand is the loopback default, which
+        // is nothing on a phone, so the first seeded machine is where it goes.
+        guard UserDefaults.standard.string(forKey: "dsh.host") == nil, let first else { return }
+        Task { await switchServer(to: first) }
     }
 
     // Coming back to a socket that quietly died looks exactly like coming back
