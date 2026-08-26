@@ -952,6 +952,10 @@ final class AppModel: ObservableObject {
             // A blank session is one dsh made and nobody has written in; it is
             // furniture, not history.
             if item["blank"] as? Bool == true, id != selected { return nil }
+            // A subagent belongs to the session that spawned it, where the
+            // strip on that page opens it. One run can spawn a dozen, and in
+            // this list they bury the conversations the user started.
+            if item["origin"] as? String == "subagent", id != selected { return nil }
             #if os(macOS)
             if let onDisk, !onDisk.contains(id) { return nil }
             #endif
