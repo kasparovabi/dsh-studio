@@ -3,7 +3,7 @@ const { test } = require("node:test");
 const proxy = require("../tailnet-proxy.js");
 
 test("isTailnet accepts the CGNAT range and nothing else", () => {
-  for (const address of ["100.64.0.1", "100.83.136.24", "100.127.255.254"]) {
+  for (const address of ["100.64.0.1", "100.100.100.100", "100.127.255.254"]) {
     assert.equal(proxy.isTailnet(address), true, address);
   }
   for (const address of ["100.63.255.255", "100.128.0.1", "10.0.0.1", "8.8.8.8"]) {
@@ -35,7 +35,7 @@ test("the key is read from the header or the websocket subprotocol", () => {
 
 test("the caller's key never reaches dsh, and neither does its Origin", () => {
   const forwarded = proxy.forwardHeaders({
-    host: "100.83.136.24:3080",
+    host: "100.100.100.100:3080",
     origin: "http://evil.example",
     "x-dsh-key": "secret",
     "content-type": "application/json",
@@ -48,7 +48,7 @@ test("the caller's key never reaches dsh, and neither does its Origin", () => {
 
 test("peers outside the tailnet are refused, loopback is not", () => {
   assert.equal(proxy.peerAllowed({ remoteAddress: "127.0.0.1" }), true);
-  assert.equal(proxy.peerAllowed({ remoteAddress: "::ffff:100.83.136.24" }), true);
+  assert.equal(proxy.peerAllowed({ remoteAddress: "::ffff:100.100.100.100" }), true);
   assert.equal(proxy.peerAllowed({ remoteAddress: "8.8.8.8" }), false);
   assert.equal(proxy.peerAllowed({ remoteAddress: "" }), false);
 });

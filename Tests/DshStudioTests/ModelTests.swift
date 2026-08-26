@@ -3,14 +3,14 @@ import XCTest
 
 final class SplitAddressTests: XCTestCase {
     func testBareHostKeepsFallbackPort() {
-        let parsed = AppModel.splitAddress("100.83.136.24", fallbackPort: 3080)
-        XCTAssertEqual(parsed.host, "100.83.136.24")
+        let parsed = AppModel.splitAddress("100.100.100.100", fallbackPort: 3080)
+        XCTAssertEqual(parsed.host, "100.100.100.100")
         XCTAssertEqual(parsed.port, 3080)
     }
 
     func testHostWithPort() {
-        let parsed = AppModel.splitAddress("100.83.136.24:3123", fallbackPort: 3080)
-        XCTAssertEqual(parsed.host, "100.83.136.24")
+        let parsed = AppModel.splitAddress("100.100.100.100:3123", fallbackPort: 3080)
+        XCTAssertEqual(parsed.host, "100.100.100.100")
         XCTAssertEqual(parsed.port, 3123)
     }
 
@@ -63,7 +63,7 @@ final class SessionIDTests: XCTestCase {
 
 final class PrivateHostTests: XCTestCase {
     func testAcceptsPrivateRanges() {
-        for host in ["127.0.0.1", "localhost", "10.0.0.5", "192.168.1.7", "172.16.0.1", "172.31.255.254", "100.83.136.24"] {
+        for host in ["127.0.0.1", "localhost", "10.0.0.5", "192.168.1.7", "172.16.0.1", "172.31.255.254", "100.100.100.100"] {
             XCTAssertTrue(AppModel.isPrivateHost(host), host)
         }
     }
