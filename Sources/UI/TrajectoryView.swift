@@ -79,6 +79,13 @@ struct TrajectoryView: View {
                 .onChange(of: app.selected) {
                     jumpToBottom(proxy)
                 }
+                // The selection changes before the backlog is fetched, so its
+                // jump lands in an empty stack. This one fires once the history
+                // is in, which is when there is finally something to sit at the
+                // bottom of.
+                .onChange(of: app.historyRevision) {
+                    jumpToBottom(proxy)
+                }
                 // Sending is a deliberate move to the end of the conversation,
                 // so it takes the reader back down even while parked.
                 .onChange(of: app.scrollPin) {
@@ -141,7 +148,11 @@ struct TrajectoryView: View {
     // length does not read as the reader scrolling backwards.
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
         pinnedToBottom = true
-        for delay in [0.0, 0.05, 0.2, 0.5] {
+        // A tall backlog realises its rows over several layout passes, and a
+        // scroll issued before the rows above the anchor have a measured height
+        // lands in blank space past the end. Re-issuing across a longer ladder
+        // lets each pass correct the estimate the previous one scrolled against.
+        for delay in [0.0, 0.05, 0.2, 0.5, 0.8, 1.2] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 pinnedToBottom = true
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)

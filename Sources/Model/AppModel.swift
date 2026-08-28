@@ -263,6 +263,10 @@ final class AppModel: ObservableObject {
     @Published var queueItems: [QueueItem] = []
     @Published var composer = ""
     @Published var scrollPin = 0
+    // Bumped once a session's backlog has finished loading and its buffered
+    // frames are in. The view keys the scroll-to-bottom off this rather than
+    // off the selection, which changes before there is anything to scroll to.
+    @Published var historyRevision = 0
     let streamState = StreamState()
     @Published var lastError: String?
     @Published var wsConnected = false
@@ -1011,6 +1015,7 @@ final class AppModel: ObservableObject {
         bufferedFrames = []
         for frame in buffered { handle(frame: frame) }
         refreshSubagents()
+        historyRevision += 1
     }
 
     private func loadModels(_ id: String, generation: Int) async {
