@@ -150,6 +150,10 @@ struct TrajectoryView: View {
     }
 
     struct StreamingRows: View {
+        // How much of a stream stays on screen while it is still arriving. The
+        // finished turn replaces it with the whole text a moment later.
+        static let window = 4000
+
         @ObservedObject var stream: StreamState
         let proxy: ScrollViewProxy
         @Binding var pinned: Bool
@@ -166,10 +170,15 @@ struct TrajectoryView: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(Color.accentPurple.opacity(0.6))
                             )
-                        Text(String(stream.thinking.suffix(300)))
-                            .font(.system(size: 12))
-                            .italic()
-                            .foregroundStyle(Color.inkSecondary)
+                        // Reasoning used to be shown through a 300 character
+                        // window, which held it to about four lines and slid
+                        // the earlier thought out of sight while the model was
+                        // still writing it. It runs like any other message now,
+                        // in its own colour.
+                        Text(String(stream.thinking.suffix(StreamingRows.window)))
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.accentPurple)
+                            .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Spacer(minLength: 20)
                     }
@@ -185,7 +194,7 @@ struct TrajectoryView: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(Color.accentPurple)
                             )
-                        Text(String(stream.text.suffix(4000)) + " ▌")
+                        Text(String(stream.text.suffix(StreamingRows.window)) + " ▌")
                             .font(.system(size: 13))
                             .foregroundStyle(Color.inkPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
