@@ -3,12 +3,34 @@ import AppKit
 
 struct AssistantMarkdown: View {
     let text: String
+    @State private var copied = false
 
     var body: some View {
+        // Selection stops at a block edge because each block is its own Text,
+        // and a selectable Text swallows the right-click, so a context menu on
+        // the message never opens over it. A button at the end of the message
+        // lifts the whole thing out in one go, and it sits where the reader
+        // finishes rather than off the top of a message taller than the pane.
         VStack(alignment: .leading, spacing: 8) {
             ForEach(MarkdownParser.blocks(text)) { block in
                 view(for: block)
             }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    Text(copied ? "Copied" : "Copy message")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.inkSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Copy the whole message")
+            .padding(.top, 2)
         }
     }
 
